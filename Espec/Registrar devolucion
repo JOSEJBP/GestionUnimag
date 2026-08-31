@@ -1,0 +1,112 @@
+# Feature Specification: Registrar devolución
+
+**Created**: 25/08/2026
+
+## User Scenarios & Testing
+
+### User Story 1 - Registrar devolución de un recurso (Priority: P1)
+
+Como **estudiante**, quiero realizar la devolución de un recurso que tengo actualmente en uso, para finalizar su utilización y dejar registrado el check-out del recurso en el sistema.
+
+**Why this priority**: Es la funcionalidad principal del caso de uso. Permite finalizar formalmente el uso de un recurso y mantener actualizado el registro de utilización.
+
+**Independent Test**: Puede probarse de forma independiente teniendo un estudiante con un recurso en uso y realizando la devolución. El resultado esperado es que la devolución quede registrada y la utilización del recurso finalice correctamente.
+
+**Acceptance Scenarios**:
+
+1. **Scenario**: Devolución exitosa de un recurso
+
+   * **Given** el estudiante tiene un recurso actualmente en uso
+   * **When** el estudiante realiza la devolución del recurso
+   * **Then** el sistema registra la devolución, registra el check-out y finaliza la utilización del recurso.
+
+2. **Scenario**: Registro de fecha y hora de devolución
+
+   * **Given** el estudiante tiene un recurso actualmente en uso
+   * **When** el estudiante realiza la devolución
+   * **Then** el sistema registra la fecha y hora en que se realizó la devolución.
+
+3. **Scenario**: Visualización de la información del recurso
+
+   * **Given** el estudiante tiene un recurso actualmente en uso
+   * **When** inicia el proceso de devolución
+   * **Then** el sistema muestra la información correspondiente al recurso que será devuelto.
+
+---
+
+### User Story 2 - Manejar una devolución sin recurso en uso (Priority: P2)
+
+Como **estudiante**, quiero recibir información cuando intento realizar una devolución sin tener un recurso en uso, para conocer por qué la operación no puede realizarse.
+
+**Why this priority**: Permite evitar registros de devolución inválidos y proporciona al estudiante información clara cuando no existe una utilización activa que pueda finalizar.
+
+**Independent Test**: Puede probarse con un estudiante que no tenga ningún recurso en uso e intentando realizar una devolución.
+
+**Acceptance Scenarios**:
+
+1. **Scenario**: Estudiante sin recurso en uso
+
+   * **Given** el estudiante no tiene ningún recurso actualmente en uso
+   * **When** intenta realizar una devolución
+   * **Then** el sistema impide la operación e informa que no existe un recurso pendiente de devolución.
+
+2. **Scenario**: Devolución previamente registrada
+
+   * **Given** la utilización del recurso ya fue finalizada
+   * **When** el estudiante intenta realizar nuevamente la devolución
+   * **Then** el sistema impide registrar nuevamente la devolución.
+
+---
+
+## Edge Cases
+
+* ¿Qué ocurre cuando el estudiante intenta realizar una devolución pero no existe una utilización activa asociada?
+* ¿Qué ocurre cuando el recurso que el estudiante intenta devolver ya fue registrado como devuelto?
+* ¿Qué ocurre cuando el sistema no puede identificar el recurso asociado a la utilización activa?
+* ¿Qué ocurre si se produce un error mientras se registra la devolución?
+* ¿Qué ocurre si la devolución se registra pero no es posible finalizar correctamente la utilización?
+* ¿Qué ocurre si no es posible registrar la fecha y hora de la devolución?
+* ¿Qué ocurre si dos operaciones intentan registrar simultáneamente la devolución de la misma utilización?
+
+## Requirements
+
+### Functional Requirements
+
+* **FR-001**: El sistema debe permitir al estudiante iniciar el proceso de devolución de un recurso que tenga actualmente en uso.
+* **FR-002**: El sistema debe identificar la utilización activa asociada al estudiante.
+* **FR-003**: El sistema debe mostrar al estudiante la información del recurso asociado a la utilización activa.
+* **FR-004**: El sistema debe permitir registrar la devolución realizada por el estudiante.
+* **FR-005**: El sistema debe registrar la fecha y hora en que el estudiante realiza la devolución.
+* **FR-006**: El sistema debe registrar el check-out como parte del proceso de devolución.
+* **FR-007**: El sistema debe finalizar la utilización del recurso cuando la devolución sea registrada correctamente.
+* **FR-008**: El sistema debe impedir que una utilización finalizada sea registrada nuevamente como devolución.
+* **FR-009**: El sistema debe informar al estudiante cuando la devolución haya sido registrada correctamente.
+* **FR-010**: El sistema debe informar al estudiante cuando no exista una utilización activa que pueda ser devuelta.
+* **FR-011**: El sistema debe mantener asociada la devolución con el estudiante y el recurso correspondiente.
+* **FR-012**: El sistema debe evitar que una misma utilización sea registrada como devuelta más de una vez.
+
+### Key Entities
+
+* **Estudiante**: Representa a la persona que tiene bajo su responsabilidad un recurso y realiza la devolución.
+
+* **Recurso**: Representa el activo universitario que se encuentra en uso por parte del estudiante y que posteriormente es devuelto.
+
+* **Utilización**: Representa la relación activa entre el estudiante y el recurso durante el período en que este se encuentra bajo su responsabilidad. Contiene la información necesaria para identificar el uso que será finalizado mediante la devolución.
+
+* **Devolución**: Representa el registro de la entrega realizada por el estudiante. Se relaciona con el estudiante, el recurso y la utilización correspondiente, incluyendo la fecha y hora en que fue realizada.
+
+## Success Criteria
+
+### Measurable Outcomes
+
+* **SC-001**: El 100% de las devoluciones realizadas por estudiantes con una utilización activa deben quedar registradas correctamente.
+
+* **SC-002**: El 100% de las devoluciones registradas deben estar asociadas al estudiante, recurso y utilización correspondientes.
+
+* **SC-003**: El 100% de las devoluciones registradas deben conservar la fecha y hora en que fueron realizadas.
+
+* **SC-004**: El 100% de las devoluciones registradas correctamente deben finalizar la utilización correspondiente.
+
+* **SC-005**: El sistema debe impedir el 100% de los intentos de registrar nuevamente una utilización que ya haya sido finalizada.
+
+* **SC-006**: El sistema debe informar al estudiante el resultado de la operación en el 100% de los intentos de devolución.
