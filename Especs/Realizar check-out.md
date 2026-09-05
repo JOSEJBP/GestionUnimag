@@ -18,23 +18,12 @@ Como **estudiante**, quiero realizar el check-out de un recurso que tengo actual
 
    * **Given** el estudiante tiene un recurso actualmente en uso.
    * **When** el estudiante realiza el check-out del recurso.
-   * **Then** el sistema registra el check-out con la fecha de devolución, finaliza la utilización del recurso e inicializa el flujo de penalización correspondiente.
+   * **Then** el sistema registra el check-out con la fecha de devolución, finaliza la utilización del recurso y dispara el caso de uso *Actualizar score de confianza*.
 
-### User Story 2 - Intentar realizar check-out sin utilización activa (Priority: P2)
-
-Como **estudiante**, quiero recibir información cuando intento realizar un check-out sin tener un recurso actualmente en uso, para conocer que no existe una utilización pendiente de finalizar.
-
-**Why this priority**: Representa un escenario de fallo de la funcionalidad principal y evita que el sistema registre un check-out cuando no existe una utilización activa asociada al estudiante.
-
-**Independent Test**: Puede probarse de forma independiente con un estudiante que no tenga ningún recurso actualmente en uso e intentando realizar un check-out.
-
-**Acceptance Scenarios**:
-
-1. **Scenario**: Check-out rechazado por falta de utilización activa
-
-   * **Given** el estudiante no tiene ningún recurso actualmente en uso.
-   * **When** el estudiante intenta realizar un check-out.
-   * **Then** el sistema rechaza la operación e informa que no existe una utilización activa para realizar el check-out.
+2. **Scenario**: Check-out con retraso
+   * **Given** el estudiante tiene un recurso actualmente en uso.
+   * **When** el estudiante realiza el check-out con 20 minutos de retraso.
+   * **Then** el sistema registra el check-out con la fecha de devolución, finaliza la utilización del recurso y dispara el caso de uso *Calcular penalizacion* 
 
 ### Edge Cases
 
