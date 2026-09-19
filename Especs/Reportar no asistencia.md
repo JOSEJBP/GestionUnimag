@@ -54,6 +54,12 @@ Como profesor o administrador, quiero reportar que un estudiante no asistió a s
 - **Estudiante:** Titular de la reserva sobre la que se reporta la inasistencia.
 - **Profesor / Administrador:** Actor que ejecuta el reporte.
 
+## Integración con Módulos Externos
+
+| Módulo | Tipo de relación | Justificación |
+|---|---|---|
+| Módulo 2 | **Reactivo (cola)** | El reporte publica un evento de confirmación del registro; Módulo 2 lo consume de forma asíncrona para informar al profesor o al estudiante. El registro del reporte no debe bloquearse esperando esa entrega. |
+
 ## Success Criteria
 
 ### Measurable Outcomes
