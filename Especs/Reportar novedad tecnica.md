@@ -19,9 +19,9 @@ Como estudiante, al momento de realizar el check-out de un recurso, quiero poder
 - **Then** el sistema registra el reporte de daño vinculado a la utilización, cambia el estado del recurso y dispara obligatoriamente (`«include»`) el caso de uso *Generar cobro por daño o reposición*.
 
 ### User Story 2 - Reporte de daño fuera del flujo de check-out (Priority: P2)
-Como encargado de inventario, quiero poder reportar un daño detectado en un recurso de forma independiente al check-out, para dejar constancia aun cuando el estudiante no lo haya reportado.
+Como dirección universitaria, quiero poder reportar un daño detectado en un recurso de forma independiente al check-out, para dejar constancia aun cuando el estudiante no lo haya reportado.
 
-**Why this priority:** Cubre los casos en que el daño se detecta después de la devolución (por ejemplo, en una revisión periódica), lo cual es menos frecuente pero igualmente necesario para mantener el inventario confiable.
+**Why this priority:** Cubre los casos en que el daño se detecta después de la devolución (por ejemplo, en una revisión periódica del inventario), lo cual es menos frecuente pero igualmente necesario para mantener el inventario confiable.
 
 **Independent Test:** Puede probarse de forma independiente registrando un reporte de daño sobre un recurso ya devuelto, sin pasar por el flujo de check-out, y verificando que el sistema lo registra y dispara el cobro correspondiente.
 
@@ -29,7 +29,7 @@ Como encargado de inventario, quiero poder reportar un daño detectado en un rec
 
 **Scenario: Reporte de daño detectado en revisión de inventario**
 - **Given** un recurso previamente devuelto, sin daño reportado en su check-out.
-- **When** un encargado de inventario reporta un daño detectado posteriormente.
+- **When** dirección universitaria reporta un daño detectado posteriormente.
 - **Then** el sistema registra el reporte vinculado a la última utilización identificable del recurso, cambia el estado del recurso y dispara el caso de uso *Generar cobro por daño o reposición*.
 
 ## Edge Cases
@@ -45,11 +45,11 @@ Como encargado de inventario, quiero poder reportar un daño detectado en un rec
 
 ### Functional Requirements
 - **FR-001:** El sistema debe permitir reportar un daño técnico como parte del flujo de *Realizar check-out* (`«extend»`).
-- **FR-002:** El sistema debe permitir reportar un daño técnico de forma independiente al check-out, por parte de un encargado de inventario.
+- **FR-002:** El sistema debe permitir a la dirección universitaria reportar un daño técnico de forma independiente al check-out.
 - **FR-003:** El sistema debe identificar el recurso asociado al reporte y, cuando aplique, la utilización y el estudiante correspondientes.
 - **FR-004:** El sistema debe registrar la descripción del daño y, si está disponible, evidencia asociada (por ejemplo, fotografías).
 - **FR-005:** El sistema debe disparar obligatoriamente (`«include»`) el caso de uso *Generar cobro por daño o reposición* una vez registrado correctamente el reporte.
-- **FR-006:** El sistema debe actualizar el estado del recurso (por ejemplo, a "En mantenimiento" o "Fuera de servicio") cuando se registre un daño.
+- **FR-006:** El sistema debe actualizar el estado del recurso (por ejemplo, a "En mantenimiento" o "Fuera de servicio") cuando se registre un daño, reflejando el cambio en Módulo 1 (encargado de la gestión de recursos).
 - **FR-007:** El sistema debe impedir el registro de un reporte de daño duplicado para la misma utilización.
 - **FR-008:** El sistema debe informar cuando el recurso no pueda identificarse o cuando falte la descripción mínima requerida.
 
@@ -58,6 +58,12 @@ Como encargado de inventario, quiero poder reportar un daño detectado en un rec
 - **Reporte_Daño:** Registro de la novedad técnica, con descripción, evidencia, fecha, recurso y utilización asociados, y quien reporta.
 - **Utilización:** Relación entre el estudiante y el recurso durante la cual (o después de la cual) se detecta el daño.
 - **Estudiante:** Referenciado cuando el daño puede vincularse a una utilización específica.
+
+## Integración con Módulos Externos
+
+| Módulo | Tipo de relación | Justificación |
+|---|---|---|
+| Módulo 1 (Recursos) | **Proactivo (REST)** | El cambio de estado del recurso (a "En mantenimiento" o "Fuera de servicio") debe confirmarse de inmediato para evitar que el recurso sea asignado nuevamente antes de que Módulo 1 refleje el cambio. Se requiere una llamada síncrona con respuesta de éxito/error. |
 
 ## Success Criteria
 
