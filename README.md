@@ -13,11 +13,11 @@ Casos de uso incluidos en el módulo:
 | **Realizar check-out** | Estudiante | `«extend»` Actualizar score de confianza / Calcular penalización / Reportar novedad técnica |
 | **Calcular penalización** | Sistema | `«include»` desde Reportar no asistencia · `«extend»` desde Realizar check-out |
 | **Actualizar score de confianza** | Sistema | `«include»` Notificar sanción · `«extend»` Bloquear usuario |
-| **Bloquear usuario** | Sistema / Administrador | `«extend»` desde Actualizar score de confianza |
+| **Bloquear usuario** | Sistema | `«extend»` desde Actualizar score de confianza |
 | **Notificar sanción** | Sistema | `«include»` desde Calcular penalización / Actualizar score de confianza |
 | **Reportar novedad técnica (Daño)** | Estudiante, Dirección universitaria | `«include»` Generar cobro por daño o reposición |
-| **Generar cobro por daño o reposición** | Sistema, Dirección universitaria | `«include»` desde Reportar novedad técnica |
-| **Reportar no asistencia** | Profesor / Administrador | `«include»` Calcular penalización |
+| **Generar cobro por daño o reposición** | Estudiante, Dirección universitaria | `«include»` desde Reportar novedad técnica |
+| **Reportar no asistencia** | Dirección universitaria | `«include»` Calcular penalización |
 
 ### Integraciones externas
 - **Módulo 1 (Recursos):** actualización síncrona (REST) del estado del recurso al reportar un daño.
