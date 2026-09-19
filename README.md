@@ -30,14 +30,14 @@ Ver [`Pantallas.png`](./Especs/Pantallas.png): perfil del estudiante (score, pen
 ## Estructura del repositorio
 
 ```
-├── Diagrama.png                        # Diagrama de casos de uso del módulo
-├── Pantallas.png                       # Mockups de UI (estudiante y administración)
-├── realizar-checkout.md                # Realizar check-out
-├── Calcular_penalizacion.md            # Calcular penalización
 ├── actualizar-score-confianza.md       # Actualizar score de confianza
 ├── Bloquear_usuario.md                 # Bloquear usuario
-├── notificar-sancion.md                # Notificar sanción
-├── reportar-novedad-tecnica.md         # Reportar novedad técnica (daño)
+├── Calcular_penalizacion.md            # Calcular penalización
+├── Diagrama.png                        # Diagrama de casos de uso del módulo
 ├── generar-cobro.md                    # Generar cobro por daño o reposición
-└── reportar-no-asistencia.md           # Reportar no asistencia
+├── notificar-sancion.md                # Notificar sanción
+├── Pantallas.png                       # Mockups de UI (estudiante y administración)
+├── realizar-checkout.md                # Realizar check-out
+├── reportar-no-asistencia.md           # Reportar no asistencia
+└── reportar-novedad-tecnica.md         # Reportar novedad técnica (daño)
 ```
