@@ -43,22 +43,22 @@ Como dirección universitaria, quiero poder revisar, ajustar, exonerar o aprobar
 - **Then** el estado del cobro cambia a "Exonerado" y el estudiante no debe pagar ningún monto.
 
 ### User Story 3 - Consulta y pago del cobro por el estudiante (Priority: P2)
-Como estudiante, quiero poder consultar el estado de mis cobros pendientes y pagarlos a través del Módulo 1, para resolver mi situación con los recursos utilizados.
+Como estudiante, quiero poder consultar el estado de mis cobros pendientes y pagarlos a través del Módulo 2, para resolver mi situación con los recursos utilizados.
 
 **Why this priority:** Es el cierre natural del flujo de cobro; el estudiante necesita visibilidad y un canal de pago concreto.
 
-**Independent Test:** Puede probarse con un cobro en estado "Aprobado" que el estudiante consulta y paga a través del Módulo 1, verificando que el estado cambia a "Pagado".
+**Independent Test:** Puede probarse con un cobro en estado "Aprobado" que el estudiante consulta y paga a través del Módulo 2, verificando que el estado cambia a "Pagado".
 
 **Acceptance Scenarios:**
 
 **Scenario: Consulta de cobros pendientes**
 - **Given** un estudiante con al menos un cobro en estado "Aprobado".
-- **When** consulta sus cobros a través del Módulo 1.
+- **When** consulta sus cobros a través del Módulo 2.
 - **Then** el sistema muestra el detalle del cobro (motivo, monto, recurso asociado, fecha).
 
 **Scenario: Pago de un cobro**
 - **Given** un cobro en estado "Aprobado".
-- **When** el estudiante realiza el pago a través del Módulo 1.
+- **When** el estudiante realiza el pago a través del Módulo 2.
 - **Then** el sistema actualiza el estado del cobro a "Pagado" y lo registra con fecha de pago.
 
 ## Edge Cases
@@ -77,8 +77,8 @@ Como estudiante, quiero poder consultar el estado de mis cobros pendientes y pag
 - **FR-003:** El sistema debe rechazar la generación automática e informar cuando el recurso no tenga un costo de reposición configurado.
 - **FR-004:** El sistema debe vincular el cobro generado con el estudiante, el recurso y el reporte de daño correspondientes.
 - **FR-005:** El sistema debe permitir a la dirección universitaria aprobar, ajustar el monto, o exonerar un cobro en estado "Pendiente".
-- **FR-006:** El sistema debe permitir al estudiante consultar el estado y detalle de sus cobros a través del Módulo 1.
-- **FR-007:** El sistema debe permitir al estudiante pagar un cobro en estado "Aprobado" a través del Módulo 1.
+- **FR-006:** El sistema debe permitir al estudiante consultar el estado y detalle de sus cobros a través del Módulo 2.
+- **FR-007:** El sistema debe permitir al estudiante pagar un cobro en estado "Aprobado" a través del Módulo 2.
 - **FR-008:** El sistema debe permitir al estudiante apelar un cobro, cambiando su estado a "Apelado" y suspendiendo la exigencia de pago hasta su resolución.
 - **FR-009:** El sistema debe impedir la generación de un cobro duplicado para el mismo reporte de daño.
 - **FR-010:** El sistema debe rechazar intentos de pago sobre cobros en estado "Exonerado" o "Pagado".
@@ -87,8 +87,14 @@ Como estudiante, quiero poder consultar el estado de mis cobros pendientes y pag
 - **Cobro:** Representa el monto adeudado por daño o reposición. Contiene motivo, monto, recurso, estudiante, reporte de daño asociado, y estado (Pendiente, Aprobado, Exonerado, Apelado, Pagado).
 - **Catalogo_Costos_Reposicion:** Configuración del costo de reposición o reparación por tipo de recurso.
 - **Reporte_Daño:** Origen del cobro generado.
-- **Estudiante:** Responsable del cobro, con visibilidad y capacidad de pago a través del Módulo 1.
+- **Estudiante:** Responsable del cobro, con visibilidad y capacidad de pago a través del Módulo 2.
 - **Dirección universitaria:** Actor con capacidad de aprobar, ajustar o exonerar el cobro.
+
+## Integración con Módulos Externos
+
+| Módulo | Tipo de relación | Justificación |
+|---|---|---|
+| Módulo 2 | **Proactivo (REST)** | La consulta del estado del cobro y el pago requieren una respuesta inmediata y consistente (el estudiante necesita ver el resultado de su pago al instante, y no se puede dejar en un estado ambiguo). Se implementan como llamadas síncronas de solicitud/respuesta. |
 
 ## Success Criteria
 
