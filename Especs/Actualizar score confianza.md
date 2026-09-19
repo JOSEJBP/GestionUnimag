@@ -1,7 +1,6 @@
 # Feature Specification: Actualizar Score de Confianza
 
 **Created:** 2026-09-03
-**Revisado:** 2026-09-04 — se adoptaron los incrementos variables (+2 check-out, +5 recuperación, -5 reducción) en lugar de la regla de "solo múltiplos de 5"; se eliminó por ahora el flujo de "confirmar asistencia" (+3) al no existir como caso de uso en el diagrama; el bloqueo/desbloqueo efectivo se delega al caso de uso *Bloquear usuario* (`«extend»`); la notificación de cada cambio se delega a *Notificar sanción* (`«include»`), que ahora cubre cualquier cambio de score, no solo sanciones.
 
 ## User Scenarios & Testing
 
@@ -156,6 +155,12 @@ Como estudiante y administrador, necesito poder consultar el score de confianza 
 - **Historial_Score:** Registro de cada cambio: estudiante, fecha, tipo de cambio (REDUCCION, AUMENTO_CHECKOUT, RECUPERACION_PERIODO), puntos, motivo, score antes y después del cambio.
 - **Estudiante:** Titular del score (su estado de bloqueo y el detalle de bloqueos viven en *Bloquear usuario*).
 - **Configuracion_Sistema:** Parámetros globales: período sin infracciones para recuperación (30 días), puntos por check-out exitoso (2 puntos), score máximo (50), score mínimo (0).
+
+## Integración con Módulos Externos
+
+| Módulo | Tipo de relación | Justificación |
+|---|---|---|
+| Módulo 2 | **Reactivo (cola)** | Este caso de uso no llama a Módulo 2 directamente: dispara (`«include»`) *Notificar sanción*, que es quien publica el evento hacia Módulo 2 de forma asíncrona. La actualización del score no debe bloquearse esperando la entrega de la notificación. |
 
 ## Success Criteria
 
