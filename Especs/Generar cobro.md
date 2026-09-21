@@ -61,11 +61,55 @@ Como estudiante, quiero poder consultar el estado de mis cobros pendientes y pag
 - **When** el estudiante realiza el pago a través del Módulo 2.
 - **Then** el sistema actualiza el estado del cobro a "Pagado" y lo registra con fecha de pago.
 
+### User Story 4 - Consulta de tarjetas de cobro (Priority: P1)
+Como estudiante, quiero ver los cobros pendientes asociados al deterioro o rotura de materiales, para estar al tanto de mis deudas económicas.
+
+**Why this priority:** La deuda debe ser visible con suficiente detalle para que el estudiante pueda identificarla y resolverla.
+
+**Independent Test:** Puede probarse con dos cobros aprobados, verificando que cada tarjeta muestra su referencia, ítem y monto en moneda local.
+
+**Acceptance Scenarios:**
+
+**Scenario: Visualización del detalle del cobro**
+- **Given** un estudiante con uno o más cobros pendientes.
+- **When** consulta la sección de cobros de su perfil.
+- **Then** el sistema muestra una tarjeta por cobro con referencia única, nombre del ítem dañado, monto en CLP y estado.
+
+**Scenario: Sin cobros pendientes**
+- **Given** un estudiante sin cobros pendientes por daños.
+- **When** consulta la sección de cobros.
+- **Then** el sistema muestra "No tienes deudas o cobros pendientes.".
+
+### User Story 5 - Pago o apelación desde el perfil (Priority: P1)
+Como estudiante, quiero pagar un cobro directamente desde la plataforma o apelar la penalización si considero que no fui responsable del daño.
+
+**Why this priority:** El perfil debe ofrecer una acción para saldar la deuda y otra para solicitar revisión administrativa.
+
+**Independent Test:** Puede probarse seleccionando "Pagar" y "Apelar" desde una tarjeta de cobro, verificando que cada acción inicia su flujo correspondiente.
+
+**Acceptance Scenarios:**
+
+**Scenario: Inicio del pago**
+- **Given** un cobro aprobado y pendiente de pago.
+- **When** el estudiante selecciona "Pagar".
+- **Then** el sistema redirige a la pasarela de pago y conserva la referencia del cobro.
+
+**Scenario: Inicio de la apelación**
+- **Given** un cobro pendiente o aprobado que no tiene una apelación en revisión.
+- **When** el estudiante selecciona "Apelar".
+- **Then** el sistema abre un formulario o modal de reclamo para enviar la justificación y la evidencia a administración.
+
+**Scenario: Apelación en revisión**
+- **Given** un cobro con una apelación en estado "Pendiente".
+- **When** el estudiante consulta la tarjeta.
+- **Then** el sistema muestra la etiqueta "Apelación Pendiente" y mantiene visible la acción de pago mientras la apelación esté en revisión.
+
 ## Edge Cases
 
 - **Recurso sin costo de reposición configurado:** el sistema debe rechazar la generación automática e informar que se requiere definir manualmente el monto.
 - **Cobro ya generado para el mismo reporte de daño:** el sistema debe impedir la generación de un cobro duplicado para el mismo reporte.
 - **Estudiante apela un cobro ya aprobado:** el sistema debe permitir registrar la apelación, cambiando el estado a "Apelado" y suspendiendo temporalmente la exigencia de pago hasta su resolución.
+- **Apelación pendiente:** el sistema debe mostrar la etiqueta "Apelación Pendiente" y evitar una segunda apelación activa para el mismo cobro.
 - **Error al generar el cobro:** el sistema debe informar que el reporte de daño se registró pero el cobro no pudo generarse, marcando la inconsistencia para revisión.
 - **Intento de pago sobre un cobro exonerado o ya pagado:** el sistema debe rechazar el intento e informar el estado actual del cobro.
 
@@ -82,6 +126,11 @@ Como estudiante, quiero poder consultar el estado de mis cobros pendientes y pag
 - **FR-008:** El sistema debe permitir al estudiante apelar un cobro, cambiando su estado a "Apelado" y suspendiendo la exigencia de pago hasta su resolución.
 - **FR-009:** El sistema debe impedir la generación de un cobro duplicado para el mismo reporte de daño.
 - **FR-010:** El sistema debe rechazar intentos de pago sobre cobros en estado "Exonerado" o "Pagado".
+- **FR-011:** La interfaz debe mostrar cada cobro pendiente en una tarjeta individual con referencia, ítem dañado, monto en CLP y estado.
+- **FR-012:** La interfaz debe mostrar "No tienes deudas o cobros pendientes." cuando el estudiante no tenga cobros activos.
+- **FR-013:** El botón "Pagar" debe redirigir a la pasarela de pago conservando la referencia única del cobro.
+- **FR-014:** El botón "Apelar" debe abrir un formulario o modal de reclamo para revisión administrativa.
+- **FR-015:** El sistema debe mostrar "Apelación Pendiente" en la tarjeta mientras la apelación esté en revisión y mantener habilitado el pago.
 
 ## Key Entities
 - **Cobro:** Representa el monto adeudado por daño o reposición. Contiene motivo, monto, recurso, estudiante, reporte de daño asociado, y estado (Pendiente, Aprobado, Exonerado, Apelado, Pagado).
@@ -89,6 +138,7 @@ Como estudiante, quiero poder consultar el estado de mis cobros pendientes y pag
 - **Reporte_Daño:** Origen del cobro generado.
 - **Estudiante:** Responsable del cobro, con visibilidad y capacidad de pago a través del Módulo 2.
 - **Dirección universitaria:** Actor con capacidad de aprobar, ajustar o exonerar el cobro.
+- **Apelacion_Cobro:** Solicitud de revisión administrativa vinculada a un cobro, con estado, justificación y evidencia.
 
 ## Integración con Módulos Externos
 

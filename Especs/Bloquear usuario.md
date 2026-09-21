@@ -42,6 +42,44 @@ Como administrador, necesito poder desbloquear a un estudiante cuando su score s
 - **When** un administrador ejecuta el flujo de habilitación manual.
 - **Then** el estado del estudiante vuelve a "Activo", quedando registrada la intervención administrativa en el historial.
 
+### User Story 3 - Visualización del estado bloqueado en el perfil (Priority: P1)
+Como estudiante, quiero ver un banner prominente cuando mi cuenta esté bloqueada, para entender inmediatamente por qué no puedo realizar nuevos préstamos.
+
+**Why this priority:** El bloqueo debe ser visible antes de que el estudiante intente una nueva solicitud y debe explicar su causa.
+
+**Independent Test:** Puede probarse con un estudiante cuyo score sea 0, verificando que su perfil muestra el banner rojo, el score actual y el motivo de la sanción.
+
+**Acceptance Scenarios:**
+
+**Scenario: Banner de bloqueo por sanción completa**
+- **Given** un estudiante con score de confianza igual a 0.
+- **When** accede a su perfil.
+- **Then** el sistema muestra un banner rojo con el texto "ESTADO: BLOQUEADO POR SANCIÓN COMPLETA. Su score actual es 0 / 50.".
+
+**Scenario: Motivo de sanción reciente**
+- **Given** un estudiante bloqueado con una sanción registrada recientemente.
+- **When** consulta el encabezado de su perfil.
+- **Then** el sistema muestra una notificación flotante o badge con el motivo y la variación, por ejemplo "Sanción: -5 pts por retraso".
+
+### User Story 4 - Acceso al reglamento de préstamos (Priority: P2)
+Como estudiante, quiero acceder rápidamente al reglamento oficial de préstamos desde mi perfil, para conocer las reglas y normativas del sistema.
+
+**Why this priority:** El reglamento es la referencia institucional para interpretar sanciones, bloqueos y condiciones de préstamo.
+
+**Independent Test:** Puede probarse seleccionando el enlace del reglamento desde un perfil bloqueado o activo y verificando que el documento se abre correctamente.
+
+**Acceptance Scenarios:**
+
+**Scenario: Consulta del reglamento**
+- **Given** un estudiante autenticado en su perfil.
+- **When** selecciona "Ver reglamento de préstamos".
+- **Then** el sistema abre el reglamento institucional en una vista o modal disponible para consulta.
+
+**Scenario: Reglamento no disponible**
+- **Given** que el documento institucional no está disponible temporalmente.
+- **When** el estudiante selecciona "Ver reglamento de préstamos".
+- **Then** el sistema informa la indisponibilidad y permite volver al perfil sin perder el contexto.
+
 ## Edge Cases
 
 - **Estudiante bloqueado tanto por score como por daño técnico:** ambos bloqueos coexisten de forma independiente; el estudiante permanece bloqueado hasta que se resuelvan ambas condiciones.
@@ -58,11 +96,16 @@ Como administrador, necesito poder desbloquear a un estudiante cuando su score s
 - **FR-004:** El sistema debe permitir a los administradores desbloquear manualmente a un estudiante, registrando la intervención en el historial.
 - **FR-005:** El sistema debe mantener el bloqueo por daño técnico de forma independiente del bloqueo por score, de modo que ambos puedan coexistir.
 - **FR-006:** El sistema debe impedir el registro de un bloqueo duplicado cuando el estudiante ya se encuentre bloqueado por score.
+- **FR-007:** El perfil del estudiante debe mostrar un banner rojo cuando el score sea 0 o exista una sanción que bloquee nuevos préstamos.
+- **FR-008:** El banner debe mostrar el estado, el score actual sobre 50 y el motivo de la sanción más reciente cuando exista.
+- **FR-009:** El perfil debe ofrecer el enlace o botón "Ver reglamento de préstamos".
+- **FR-010:** El sistema debe mostrar un estado visual habilitado cuando el score sea mayor que 0 y no existan bloqueos vigentes.
 
 ## Key Entities
 - **Estudiante:** Contiene su estado actual (Activo, Bloqueado por score, Bloqueado por daño, Bloqueado por ambos).
 - **Historial_Bloqueos:** Registro de cada bloqueo y desbloqueo aplicado, con fecha, motivo (score / daño / manual) y usuario responsable en caso de intervención administrativa.
 - **Score_Confianza:** Origen del bloqueo automático cuando alcanza 0 puntos.
+- **Reglamento_Prestamos:** Documento institucional consultable desde el perfil del estudiante.
 
 ## Success Criteria
 

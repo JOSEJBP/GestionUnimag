@@ -109,6 +109,35 @@ Como estudiante y administrador, necesito poder consultar el score de confianza 
 - **When** busca a un estudiante y consulta su score de confianza.
 - **Then** el sistema muestra el score actual, el historial completo de cambios, y el estado del estudiante (Activo/Bloqueado).
 
+### User Story 6 - Visualización de recuperación e historial en el perfil (Priority: P1)
+Como estudiante, quiero ver mi puntaje de confianza, saber cómo recuperarlo y revisar el historial detallado de puntos ganados y perdidos, para planificar mis futuras solicitudes y verificar qué acciones afectaron mi reputación.
+
+**Why this priority:** La información del score debe ser comprensible y verificable para que el estudiante pueda corregir su comportamiento.
+
+**Independent Test:** Puede probarse con un estudiante de score 0 y tres cambios históricos, verificando el indicador visual, la regla de recuperación, el contador y la lista cronológica.
+
+**Acceptance Scenarios:**
+
+**Scenario: Visualización del score y consecuencia**
+- **Given** un estudiante autenticado con un score entre 0 y 50.
+- **When** accede a la sección de score de confianza.
+- **Then** el sistema muestra un componente circular o anillo con el valor sobre 50 y el texto de consecuencia correspondiente, por ejemplo "Acceso a préstamos suspendido".
+
+**Scenario: Regla y progreso de recuperación**
+- **Given** un estudiante sin nuevas infracciones durante el período configurado.
+- **When** consulta su score antes de completar el período.
+- **Then** el sistema muestra la regla vigente y una barra o contador con los días restantes para recuperar los próximos 5 puntos.
+
+**Scenario: Historial cronológico del score**
+- **Given** un estudiante con cambios de score registrados.
+- **When** consulta el historial.
+- **Then** el sistema muestra evento, fecha y variación, diferenciando aumentos positivos y reducciones negativas mediante señales visuales distintas.
+
+**Scenario: Estudiante sin historial**
+- **Given** un estudiante nuevo sin cambios de score.
+- **When** consulta el historial.
+- **Then** el sistema muestra un estado vacío informativo y conserva visible su score inicial de 50/50 puntos.
+
 ## Edge Cases
 
 - **Score en 5 y se aplica una reducción de 5 puntos:** el score queda en 0 y se dispara el bloqueo (`«extend»` a *Bloquear usuario*).
@@ -149,10 +178,15 @@ Como estudiante y administrador, necesito poder consultar el score de confianza 
 - **FR-SC-012:** El sistema debe permitir al administrador configurar el período sin infracciones requerido para la recuperación (valor por defecto: 30 días) en `Configuracion_Sistema`.
 - **FR-SC-013:** El sistema debe permitir al administrador configurar los puntos otorgados por check-out exitoso (valor por defecto: 2 puntos) en `Configuracion_Sistema`.
 - **FR-SC-014:** El sistema debe disparar este caso de uso como un `«extend»` condicional desde *Calcular penalización*, solo cuando `afecta_score_confianza = TRUE`.
+- **FR-SC-015:** El perfil debe mostrar el score actual mediante un componente visual circular o anillo sobre un máximo de 50 puntos.
+- **FR-SC-016:** El perfil debe mostrar la consecuencia vigente del score y la regla de recuperación configurada.
+- **FR-SC-017:** El perfil debe mostrar un contador o barra con los días restantes para la próxima recuperación de 5 puntos.
+- **FR-SC-018:** El historial visible debe incluir evento, fecha, motivo y variación de puntos, diferenciando aumentos y reducciones.
 
 ## Key Entities
 - **Score_Confianza:** Nivel de confianza actual del estudiante. Inicia en 50 puntos, se mueve entre 0 y 50 mediante incrementos/decrementos variables (-5, +2, +5). Incluye valor actual y fecha de última actualización.
 - **Historial_Score:** Registro de cada cambio: estudiante, fecha, tipo de cambio (REDUCCION, AUMENTO_CHECKOUT, RECUPERACION_PERIODO), puntos, motivo, score antes y después del cambio.
+- **Recuperacion_Score:** Estado del período sin infracciones, incluyendo fecha de inicio, días transcurridos, días restantes y próxima bonificación.
 - **Estudiante:** Titular del score (su estado de bloqueo y el detalle de bloqueos viven en *Bloquear usuario*).
 - **Configuracion_Sistema:** Parámetros globales: período sin infracciones para recuperación (30 días), puntos por check-out exitoso (2 puntos), score máximo (50), score mínimo (0).
 

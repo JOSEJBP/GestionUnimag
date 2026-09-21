@@ -67,6 +67,30 @@ Como administrador, necesito poder modificar los rangos de la escala progresiva 
 - **When** agrega un nuevo rango "6 infracciones = 45 días".
 - **Then** el sistema guarda el nuevo rango y lo aplica cuando un estudiante alcanza 6 infracciones.
 
+### User Story 4 - Consulta de penalizaciones vigentes (Priority: P1)
+Como estudiante, quiero consultar mis suspensiones activas y sus fechas de vencimiento, para saber cuándo podré solicitar equipos nuevamente.
+
+**Why this priority:** La fecha de vencimiento determina cuándo termina la restricción para solicitar equipos.
+
+**Independent Test:** Puede probarse con dos sanciones activas, verificando que cada una se muestra por separado con duración, causa y fecha límite.
+
+**Acceptance Scenarios:**
+
+**Scenario: Lista de sanciones temporales**
+- **Given** un estudiante con una o más penalizaciones vigentes.
+- **When** consulta la sección de penalizaciones de su perfil.
+- **Then** el sistema muestra una tarjeta por sanción con título, duración, causa y fecha límite con ícono de calendario.
+
+**Scenario: Sin penalizaciones activas**
+- **Given** un estudiante sin sanciones temporales vigentes.
+- **When** consulta la sección de penalizaciones.
+- **Then** el sistema muestra "No tienes penalizaciones activas. ¡Sigue así!".
+
+**Scenario: Penalización vencida**
+- **Given** una sanción cuya fecha de vencimiento ya pasó.
+- **When** el sistema actualiza el estado de las sanciones.
+- **Then** la sanción deja de mostrarse como vigente y el cambio queda registrado.
+
 ## Edge Cases
 
 - **Infracciones de distinto tipo (retraso + inasistencia):** se acumulan todas en los últimos 30 días, independientemente del tipo, para el conteo de infracciones previas.
@@ -94,6 +118,9 @@ Como administrador, necesito poder modificar los rangos de la escala progresiva 
 - **FR-012:** El sistema debe permitir a los administradores gestionar (crear, modificar, eliminar) los rangos de `Sancion_Escala_Progresiva`, ajustando únicamente los días de suspensión.
 - **FR-013:** El sistema debe contar las infracciones previas del estudiante considerando solo el período configurado (30 días por defecto).
 - **FR-014:** El sistema debe acumular todas las infracciones del estudiante (retrasos e inasistencias) dentro del período configurado para determinar la escala aplicable.
+- **FR-015:** El sistema debe exponer las penalizaciones vigentes de un estudiante con duración, causa, estado y fecha de vencimiento.
+- **FR-016:** La interfaz debe mostrar cada penalización vigente en una tarjeta individual con su fecha límite e ícono de calendario.
+- **FR-017:** La interfaz debe mostrar "No tienes penalizaciones activas. ¡Sigue así!" cuando no existan sanciones vigentes.
 
 ## Key Entities
 - **Sancion_Reglas:** Configuración base de cada tipo de penalización (motivo, unidad de cálculo, umbral mínimo, indicador `afecta_score_confianza`, estado activo/inactivo).
