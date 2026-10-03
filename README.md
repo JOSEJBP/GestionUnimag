@@ -21,7 +21,7 @@ Casos de uso incluidos en el módulo:
 
 ### Integraciones externas
 - **Módulo 1 (Recursos):** actualización síncrona (REST) del estado del recurso al reportar un daño.
-- **Módulo 2:** notificaciones y confirmaciones (mayormente asíncronas vía cola), y consulta/pago de cobros (síncrono REST).
+- **Módulo 2:** notificaciones y confirmaciones (mayormente asíncronas vía Kafka), y consulta/pago de cobros (síncrono REST).
 
 ## Mockups de pantalla
 
