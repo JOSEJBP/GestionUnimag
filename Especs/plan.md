@@ -50,7 +50,7 @@ Para reportar un daño no existe una transacción única que abarque MySQL y el 
 ```text
 Especs/
 ├── plan.md                              # This file
-├── gitflow.md                           # Estrategia de ramas (develop / master)
+├── gitflow.md                           # Estrategia de ramas (develop / main)
 ├── Diagrama.png
 ├── pantallas-2-01.png                   # Mockups de UI
 ├── realizar-checkout.md
@@ -74,7 +74,7 @@ Especs/
 Se define la estrategia de ramas como sigue:
 
 - `develop`: rama de integración y evolución del módulo.
-- `master`: rama de despliegue y entrega validada.
+- `main`: rama de despliegue y entrega validada.
 
 Las reglas y el flujo recomendado están documentados en [`gitflow.md`](./gitflow.md).
 

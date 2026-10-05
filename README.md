@@ -56,6 +56,6 @@ Ver [`pantallas-2-01.png`](./Especs/pantallas-2-01.png): perfil del estudiante (
 Se usa una estrategia GitFlow mínima con dos ramas principales:
 
 - `develop`: integración y desarrollo activo
-- `master`: entrega y despliegue validado
+- `main`: entrega y despliegue validado
 
 La documentación detallada está en [`Especs/gitflow.md`](./Especs/gitflow.md).
