@@ -40,15 +40,18 @@ Ver [`pantallas-2-01.png`](./Especs/pantallas-2-01.png): perfil del estudiante (
 │   ├── notificar-sancion.md
 │   ├── pantallas-2-01.png
 │   ├── plan.md
-│   ├── plan-uc1-actualizar-score.md
-│   ├── plan-uc2-calcular-penalizacion.md
-│   ├── plan-uc3-bloquear-usuario.md
-│   ├── plan-uc-reportar-no-asistencia.md
-│   ├── plan-uc-reportar-novedad-tecnica.md
 │   ├── realizar-checkout.md
 │   ├── reportar-no-asistencia.md
 │   └── reportar-novedad-tecnica.md
-└── README.md
+├── planes-tecnicos/
+│   ├── plan-uc-realizar-checkout.md
+│   ├── plan-uc-reportar-no-asistencia.md
+│   ├── plan-uc-reportar-novedad-tecnica.md
+│   ├── plan-uc1-actualizar-score.md
+│   ├── plan-uc2-calcular-penalizacion.md
+│   └── plan-uc3-bloquear-usuario.md
+├── README.md
+└── .gitignore
 ```
 
 ## GitFlow

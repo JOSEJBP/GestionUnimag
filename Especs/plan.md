@@ -49,7 +49,7 @@ Para reportar un daño no existe una transacción única que abarque MySQL y el 
 
 ```text
 Especs/
-├── plan.md                              # This file
+├── plan.md                              # Este archivo
 ├── gitflow.md                           # Estrategia de ramas (develop / main)
 ├── Diagrama.png
 ├── pantallas-2-01.png                   # Mockups de UI
@@ -61,6 +61,10 @@ Especs/
 ├── reportar-no-asistencia.md
 ├── reportar-novedad-tecnica.md
 ├── generar-cobro.md
+└── ...
+
+planes-tecnicos/
+├── plan-uc-realizar-checkout.md
 ├── plan-uc1-actualizar-score.md
 ├── plan-uc2-calcular-penalizacion.md
 ├── plan-uc3-bloquear-usuario.md
