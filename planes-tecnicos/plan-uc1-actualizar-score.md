@@ -1,8 +1,8 @@
 # Implementation Plan: Actualizar score de confianza (UC1)
 
 **Date**: 2026-10-05
-**Spec**: [actualizar-score-confianza.md](./actualizar-score-confianza.md)
-**Plan general**: [plan.md](./plan.md)
+**Spec**: [actualizar-score-confianza.md](../Especs/actualizar-score-confianza.md)
+**Plan general**: [plan.md](../Especs/plan.md)
 **Módulo**: Módulo 3 — Sanciones y Cumplimiento
 **Planes previos**: plan-uc-realizar-check-out.md — UC1 lo dispara cuando el check-out es `ON_TIME`
 **Planes relacionados**: [plan-uc2-calcular-penalizacion.md](./plan-uc2-calcular-penalizacion.md) — lo dispara cuando `afecta_score_confianza = TRUE`; [plan-uc3-bloquear-usuario.md](./plan-uc3-bloquear-usuario.md) — lo recibe cuando el score llega a 0 o sube por encima; notificar-sancion.md — lo recibe en cada cambio

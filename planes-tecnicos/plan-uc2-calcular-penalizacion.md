@@ -1,8 +1,8 @@
 # Implementation Plan: Calcular penalización (UC2)
 
 **Date**: 2026-10-05
-**Spec**: [calcular-penalizacion.md](./calcular-penalizacion.md)
-**Plan general**: [plan.md](./plan.md)
+**Spec**: [calcular-penalizacion.md](../Especs/calcular-penalizacion.md)
+**Plan general**: [plan.md](../Especs/plan.md)
 **Módulo**: Módulo 3 — Sanciones y Cumplimiento
 **Planes previos**: plan-uc-realizar-check-out.md — UC1 lo dispara cuando el check-out es `LATE`
 **Planes relacionados**: [plan-uc1-actualizar-score.md](./plan-uc1-actualizar-score.md) — UC4 lo recibe cuando `afecta_score_confianza = TRUE`; [plan-uc-reportar-no-asistencia.md](./plan-uc-reportar-no-asistencia.md) — UC2 lo dispara obligatoriamente; notificar-sancion.md — UC6 lo recibe siempre
@@ -770,4 +770,3 @@ La sección Contratos es la única fuente del JSON de UC3
 Decisiones adoptadas de M2: convenciones (camelCase, MAYUSCULA_CON_GUION_BAJO, nunca null, ISO-8601 con -05:00, RFC 9457), nombres de tablas en snake_case
 
 Decisiones propias de M3: UC3 no habla con M1 ni con M2; comunicación interna por puertos directos en memoria; idempotencia por source_event_id; la escala progresiva se consulta por número de infracciones; el conteo acumula retrasos e inasistencias.
-

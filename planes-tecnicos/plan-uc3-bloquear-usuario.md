@@ -1,8 +1,8 @@
 # Implementation Plan: Bloquear usuario (UC3)
 
 **Date**: 2026-10-05
-**Spec**: [bloquear-usuario.md](./bloquear-usuario.md)
-**Plan general**: [plan.md](./plan.md)
+**Spec**: [bloquear-usuario.md](../Especs/bloquear-usuario.md)
+**Plan general**: [plan.md](../Especs/plan.md)
 **Módulo**: Módulo 3 — Sanciones y Cumplimiento
 **Planes previos**: [plan-uc1-actualizar-score.md](./plan-uc1-actualizar-score.md) — UC4 lo dispara cuando el score llega a 0 o sube de 0
 **Planes relacionados**: [plan-uc-reportar-novedad-tecnica.md](./plan-uc-reportar-novedad-tecnica.md) — UC8 lo dispara cuando hay daño grave; [plan-uc2-calcular-penalizacion.md](./plan-uc2-calcular-penalizacion.md) — UC3 lo dispara indirectamente vía UC4

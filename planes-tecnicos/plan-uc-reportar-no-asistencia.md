@@ -1,8 +1,8 @@
 # Implementation Plan: Reportar no asistencia (UC7)
 
 **Date**: 2026-10-05
-**Spec**: [reportar-no-asistencia.md](./reportar-no-asistencia.md)
-**Plan general**: [plan.md](./plan.md)
+**Spec**: [reportar-no-asistencia.md](../Especs/reportar-no-asistencia.md)
+**Plan general**: [plan.md](../Especs/plan.md)
 **Módulo**: Módulo 3 — Sanciones y Cumplimiento
 **Planes previos**: plan-uc-realizar-check-out.md — UC6 crea la `Usage` local que este UC consulta para saber si hubo check-in (ver NC-01)
 **Planes relacionados**: [plan-uc2-calcular-penalizacion.md](./plan-uc2-calcular-penalizacion.md) — UC2 lo dispara obligatoriamente («include»); notificar-sancion.md — UC5 notifica la sanción resultante (lo dispara UC2, no este UC)
@@ -22,7 +22,7 @@ UC7 **no decide la sanción** (eso es de UC2), **no toca el score** (UC1) y **no
    - **T1**: validar + `INSERT no_show_report` (`penalty_status = PENDING`) + `INSERT outbox_message` (`NoShowReported`).
    - **T2**: llamar a `CalculatePenaltyPort.calculate(...)` (UC2, transacción propia).
    - **T3**: marcar el reporte `TRIGGERED` (con `penalty_id`) o `FAILED` + `needs_review = true`.
-5. La **confirmación del registro** se publica a M2 por Kafka vía outbox (`NoShowReported`). No bloquea el registro: si Kafka o M2 están caídos, el evento espera (spec: Reactivo/cola).
+5. El reporte se publica a M2 por Kafka vía outbox (`NoShowReported`) con el contrato exacto de UC9. M2 devuelve `NoShowReportAcknowledged` por su topic de acuse; el consumidor de M3 correlaciona por `sourceEventId`.
 6. Si la penalización falló, un administrador puede **reintentar** el disparo. El reintento es idempotente porque UC2 usa `source_event_id = reportId` con clave única.
 7. El UC tiene **4 user stories**: reporte exitoso (US1), rechazos por validación (US2), inconsistencia y reintento de penalización (US3) y consulta/pantalla (US4). La spec solo declara una user story con 3 escenarios; US2 y US3 se derivan de esos escenarios y de los Edge Cases.
 
@@ -31,7 +31,7 @@ UC7 **no decide la sanción** (eso es de UC2), **no toca el score** (UC1) y **no
 **Language/Version**: Java 21 (backend); JavaScript con React + Vite (frontend)
 **Primary Dependencies**: Spring Boot 4.x (Web, Data JPA, Validation, Security OAuth2 Resource Server, Spring for Apache Kafka solo para el productor vía outbox), Flyway, springdoc-openapi. **Ninguna nueva** respecto a `plan.md`.
 **Storage**: MySQL 8. UC7 **escribe** `no_show_report` y `outbox_message`. **Lee** la vista local de reservas/`usage` (ver NC-01) y, vía UC2, `penalty_history`.
-**Testing**: JUnit 5 + Mockito (dominio y casos de uso), `@WebMvcTest` (controladores), Testcontainers MySQL (persistencia, unicidad, transacciones separadas), Testcontainers Kafka (publicación de `NoShowReported`), ArchUnit (regla de dependencias entre capas).
+**Testing**: JUnit 5 + Mockito (dominio y casos de uso), `@WebMvcTest` (controladores), Testcontainers MySQL (persistencia, unicidad, transacciones separadas), Testcontainers Kafka (publicación de `NoShowReported` y consumo de `NoShowReportAcknowledged`), ArchUnit (regla de dependencias entre capas).
 **Target Platform**: Servidor Linux con JVM 21; navegador web para el frontend.
 **Project Type**: Web: backend y frontend separados (React + Vite).
 **Performance Goals**: registrar el reporte **y** disparar la penalización en **menos de 2 segundos** (SC-004). T1 y T3 son transacciones locales cortas; T2 es la transacción de UC2 (también < 2 s por su propio SC). La publicación a Kafka queda fuera del camino crítico (outbox).
@@ -51,7 +51,7 @@ UC7 **no decide la sanción** (eso es de UC2), **no toca el score** (UC1) y **no
 
 | Evento | Topic | Para qué lo consume UC7 | Dónde lo definió M2 |
 |---|---|---|---|
-| `NoShowReportAcknowledged` | `module2.reservation.no-show-ack.v1` | Registrar `m2_acknowledged_at` en el reporte. **Informativo**: el flujo no depende de él (NC-03) | `plan-uc9` §2 |
+| `NoShowReportAcknowledged` | `module2.reservation.no-show-ack.v1` | Correlacionar el resultado que M2 procesó para el reporte | [Módulo 2 UC9, Contratos §2](../plan-uc9-recibir-reporte-no-asistencia.md) |
 
 **De M1:** no aplica; UC7 no habla con M1.
 
@@ -59,17 +59,18 @@ UC7 **no decide la sanción** (eso es de UC2), **no toca el score** (UC1) y **no
 
 **Estos contratos se adoptan tal cual.** M3 no los redefine.
 
-### Lo que M3 produce para M2 (creado por M3)
+### Lo que M3 produce para M2 y consume de M2
 
-La spec pide que el registro del reporte publique una confirmación que M2 consume de forma asíncrona para informar al profesor o al estudiante.
+M3 publica el reporte en el contrato que consume UC9 de M2. M2 responde con un acuse en el topic indicado por UC9.
 
-| Evento | Topic | Cuándo se emite | Por qué M2 lo necesita | FR |
-|---|---|---|---|---|
-| `NoShowReported` | `module3.sanctions.no-show-reported.v1` | Al registrar el reporte (T1, vía outbox) | M2 informa al profesor/estudiante y puede marcar la reserva como inasistida | FR-005, spec §Integración |
+| Dirección | Evento | Topic | Uso |
+|---|---|---|---|
+| M3 → M2 | `NoShowReported` | `module3.reservation.no-show.v1` | M2 registra la ausencia y libera la reserva según UC9 |
+| M2 → M3 | `NoShowReportAcknowledged` | `module2.reservation.no-show-ack.v1` | M3 registra si M2 aceptó o rechazó el reporte |
 
-**Este topic es creado por M3.** M2 lo consume cuando esté listo. M3 lo publica igual.
+Estos son los topics y contratos definidos en [Módulo 2 UC9](../plan-uc9-recibir-reporte-no-asistencia.md); M3 los adopta sin redefinirlos.
 
-> La **sanción** resultante (días de suspensión, cambio de score) la notifica UC5 por sus propios eventos. `NoShowReported` solo confirma que **el reporte quedó registrado**.
+> El evento comunica el reporte de inasistencia. M3 dispara `CalculatePenaltyPort` localmente después de registrarlo; UC9 declara explícitamente que M2 no aplica sanciones ni decide la penalización.
 
 ### Endpoints que M3 expone para M2
 
@@ -118,7 +119,7 @@ backend/
 │   │   │   ├── NoShowRegistrar.java                 # @Transactional: validar + guardar + outbox (T1)
 │   │   │   └── NoShowPenaltyTrigger.java            # T2 + T3: llama a UC2 y marca el resultado
 │   │   └── event/
-│   │       └── NoShowAckListener.java               # consume el ack de M2 (informativo)
+│   │       └── NoShowAckListener.java               # consume y correlaciona el ack de M2
 │   │
 │   ├── domain/
 │   │   ├── model/
@@ -212,7 +213,7 @@ frontend/
 | FR-005 | Registrar fecha, reserva, estudiante y quien reporta | `NoShowReportRepository.save(...)` en T1 |
 | FR-006 | Disparar obligatoriamente Calcular penalización | `NoShowPenaltyTrigger` llama a `CalculatePenaltyPort.calculate(...)` (T2) |
 | FR-007 | Impedir reporte duplicado | Clave única en `no_show_report.reservation_id` + verificación previa |
-| FR-008 | Informar reserva no identificable / con check-in / en ventana vigente | Excepciones de dominio → `ProblemDetail` (ver Contratos §5) |
+| FR-008 | Informar reserva no identificable / con check-in / en ventana vigente | Excepciones de dominio → `ProblemDetail` (ver Contratos §7) |
 
 **Decisiones justificadas.**
 
@@ -311,40 +312,91 @@ new PenaltyRequest(
 );
 ```
 
-### 4. Evento a M2 — `module3.sanctions.no-show-reported.v1`
+### 4. Evento a M2 — `module3.reservation.no-show.v1`
 
-Evento: `NoShowReported`. Cuándo se emite: al registrar el reporte (T1, vía outbox). El payload sigue el envoltorio de M2.
+Contrato copiado de [Módulo 2 UC9, Contratos §1](../plan-uc9-recibir-reporte-no-asistencia.md). Evento `NoShowReported`, publicado al registrar el reporte. El cuerpo se limita a lo que UC9 define:
 
 ```json
 {
-  "eventId": "nsr-4b6e82c1-84ef-4b2a-9e01-2c7d8b5f3a64",
+  "eventId": "6a1f3b84-2c57-4e90-81d6-9f4e0a7c3b25",
   "type": "NoShowReported",
   "version": 1,
-  "occurredAt": "2026-10-05T11:15:00-05:00",
-  "source": "MODULO_3",
+  "occurredAt": "2026-09-01T10:11:03-05:00",
   "data": {
-    "reportId": "7d1c3e52-9a04-4f67-b1c8-3e5a2d9f6b10",
-    "reservationId": "res-20261005-0042",
-    "studentCode": "2023123456",
-    "resourceId": "ACT-004512",
-    "reportedBy": "profesor@unimagdalena.edu.co",
-    "reportedByRole": "PROFESOR",
-    "windowEnd": "2026-10-05T10:00:00-05:00",
-    "reportedAt": "2026-10-05T11:15:00-05:00"
+    "reservationId": "9f3c1d7e-5b42-4a19-8c0d-2f7e6a1b3c45",
+    "verifiedAt": "2026-09-01T10:10:30-05:00",
+    "verifiedBy": "MODULO_3",
+    "note": "Se verificó en sitio a los 10 minutos."
   }
 }
 ```
 
-| Campo | Tipo | Nota |
-|---|---|---|
-| `reportId` | string | Id del reporte en M3 |
-| `reservationId` | string | El mismo id que usa M2 |
-| `reportedByRole` | enum | `PROFESOR`, `ADMIN` |
-| `windowEnd` | instante | Fin de la ventana que se incumplió |
+`reservationId` y `verifiedAt` son obligatorios. `verifiedAt` es el instante de verificación en sitio que M2 compara con el plazo; el `occurredAt` del envoltorio es el instante de emisión. `verifiedBy` y `note` son opcionales. M2 especifica que `note` no se propaga en el acuse. No se envían `reportId`, estudiante, recurso, rol del reportante ni `windowEnd`: no forman parte del contrato de UC9.
 
-**Clave de partición:** `studentCode`.
+M3 publica también la anulación por el mismo topic y con el tipo definido por UC9:
 
-### 5. Endpoints REST
+```json
+{
+  "eventId": "b9d2e5a7-4f81-4c36-92be-7a0c1d8f3e64",
+  "type": "NoShowReportVoided",
+  "version": 1,
+  "occurredAt": "2026-09-01T11:02:14-05:00",
+  "data": {
+    "reservationId": "9f3c1d7e-5b42-4a19-8c0d-2f7e6a1b3c45",
+    "voidedReason": "El reporte se envió por error: la persona sí se presentó."
+  }
+}
+```
+
+La clave de partición es `reservationId`, para conservar el orden entre el reporte y su anulación.
+
+### 5. Acuse de M2 — `module2.reservation.no-show-ack.v1`
+
+Contrato copiado de [Módulo 2 UC9, Contratos §2](../plan-uc9-recibir-reporte-no-asistencia.md). Ejemplo aceptado:
+
+```json
+{
+  "eventId": "e7c4a018-5b93-4d27-86fa-1c2e9d0b4f73",
+  "type": "NoShowReportAcknowledged",
+  "version": 1,
+  "occurredAt": "2026-09-01T10:11:05-05:00",
+  "data": {
+    "reservationId": "9f3c1d7e-5b42-4a19-8c0d-2f7e6a1b3c45",
+    "sourceEventId": "6a1f3b84-2c57-4e90-81d6-9f4e0a7c3b25",
+    "accepted": true,
+    "absenceRegisteredAt": "2026-09-01T10:11:05-05:00",
+    "resourceReleased": true,
+    "holder": { "code": "2019114045" },
+    "reservedTime": {
+      "start": "2026-09-01T10:00:00-05:00",
+      "end": "2026-09-01T12:00:00-05:00"
+    }
+  }
+}
+```
+
+Ejemplo rechazado por reporte anticipado:
+
+```json
+{
+  "eventId": "3f8b6d20-9a14-4e75-b0c8-5d1e7f2a9c46",
+  "type": "NoShowReportAcknowledged",
+  "version": 1,
+  "occurredAt": "2026-09-01T10:04:12-05:00",
+  "data": {
+    "reservationId": "9f3c1d7e-5b42-4a19-8c0d-2f7e6a1b3c45",
+    "sourceEventId": "c2a7e591-8d36-4b04-97fe-0a3d1c8b5f27",
+    "accepted": false,
+    "rejection": "TOO_EARLY",
+    "acceptedFrom": "2026-09-01T10:10:00-05:00",
+    "detail": "El reporte se admite a partir de las 10:10. La persona todavía está a tiempo de llegar."
+  }
+}
+```
+
+M3 correlaciona el acuse por `data.sourceEventId`. El acuse es informativo respecto al procesamiento de M2; el registro local y el disparo de penalización tienen su propio estado.
+
+### 6. Endpoints REST
 
 #### `POST /api/v1/no-show-reports`
 
@@ -412,7 +464,7 @@ Devuelve el mismo objeto de arriba. Un `PROFESOR` solo puede ver los reportes qu
 
 Rol `ADMIN`. Sin cuerpo. Respuesta `200 OK` con el reporte actualizado (`TRIGGERED` o, si vuelve a fallar, `FAILED` con `needsReview: true`). `409 PENALTY_ALREADY_TRIGGERED` si el reporte ya estaba `TRIGGERED`.
 
-### 6. Errores
+### 7. Errores
 
 | Código HTTP | `code` | Cuándo |
 |---|---|---|
@@ -440,7 +492,7 @@ Rol `ADMIN`. Sin cuerpo. Respuesta `200 OK` con el reporte actualizado (`TRIGGER
 }
 ```
 
-### 7. Tablas
+### 8. Tablas
 
 #### `no_show_report`
 
@@ -471,7 +523,7 @@ CREATE INDEX no_show_report_review ON no_show_report (needs_review, reported_at 
 
 La clave única en `reservation_id` es lo que hace cumplir FR-007 y SC-002 a nivel de base de datos. `outbox_message` e `inbox_message` ya existen (UC6); UC7 los reusa.
 
-### 8. Tipos del frontend
+### 9. Tipos del frontend
 
 ```js
 export const PenaltyTriggerStatus = {
@@ -507,7 +559,7 @@ export const retryNoShowPenalty = async (reportId) => {
 };
 ```
 
-### 9. Fixtures compartidos
+### 10. Fixtures compartidos
 
 ```text
 backend/src/test/resources/contracts/
@@ -519,12 +571,16 @@ backend/src/test/resources/contracts/
 ├── api-no-show-report-409-window-active.json
 ├── api-no-show-report-409-duplicate.json
 ├── api-no-show-report-422-student.json
-└── event-no-show-reported.json
+├── event-no-show-reported.json
+├── event-no-show-voided.json
+├── event-no-show-ack-accepted.json
+├── event-no-show-ack-too-early.json
+└── event-no-show-ack-cancelled.json
 ```
 
 ## Phase 1: Setup
 
-- [ ] T001 Añadir a `application.yml` el topic `sanctions.kafka.topic.no-show-reported=module3.sanctions.no-show-reported.v1` y el topic de ack `sanctions.kafka.topic.no-show-ack=module2.reservation.no-show-ack.v1`
+- [ ] T001 Añadir a `application.yml` los topics definidos por M2 UC9: `reservations.kafka.topic.no-show=module3.reservation.no-show.v1` y `reservations.kafka.topic.no-show-ack=module2.reservation.no-show-ack.v1`
 - [ ] T002 [P] Extender `SanctionsProperties` con esos parámetros y validarlos al arrancar
 - [ ] T003 [P] Registrar un bean `Clock` (zona `America/Bogota`) si no existe ya de UC1, para poder inyectarlo en las validaciones de ventana
 
@@ -532,7 +588,7 @@ backend/src/test/resources/contracts/
 
 **Purpose**: dónde guardar el reporte y cómo consultar la reserva.
 
-- [ ] T004 Escribir `V11__no_show_report.sql` con la tabla `no_show_report` y sus índices de Contratos §7 (incluida la clave única en `reservation_id`)
+- [ ] T004 Escribir `V11__no_show_report.sql` con la tabla `no_show_report` y sus índices de Contratos §8 (incluida la clave única en `reservation_id`)
 - [ ] T005 [P] Crear el modelo de dominio: `NoShowReport`, `ReservationView`, `ReporterRole`, `PenaltyTriggerStatus` en `domain/model/`
 - [ ] T006 [P] Definir `ReportNoShowPort` en `domain/port/in/` y `NoShowReportRepository`, `ReservationLookupPort`, `NoShowReportedPublisherPort` en `domain/port/out/`
 - [ ] T007 [P] Verificar que `CalculatePenaltyPort` (UC2) y las clases `PenaltyRequest`/`PenaltyResult` están disponibles; si UC2 aún no se implementó, dejar un doble de prueba
@@ -554,7 +610,7 @@ backend/src/test/resources/contracts/
 
 - [ ] T013 [P] [US1] Pruebas en `NoShowReportServiceTest.java` (unit, con puertos falsos): reporte válido → registra, encola y llama a UC2 con el `PenaltyRequest` esperado (`occurredAt = windowEnd`); el reportante y su rol salen del comando
 - [ ] T014 [P] [US1] Prueba `NoShowReportIT.java` con Testcontainers MySQL: T1 es atómica (reporte + outbox en la misma transacción; fallo a mitad → rollback completo y sin registro incompleto); T3 deja `TRIGGERED` con `penalty_id`
-- [ ] T015 [P] [US1] Prueba `NoShowReportedPublishIT.java` con Testcontainers Kafka: el `OutboxPublisher` publica `NoShowReported` con clave `studentCode` y el envoltorio de M2
+- [ ] T015 [P] [US1] Prueba `NoShowReportedPublishIT.java` con Testcontainers Kafka: publica el envelope exacto de UC9 con clave `reservationId`, `verifiedAt` y `eventId`
 - [ ] T016 [P] [US1] Prueba `NoShowReportControllerTest.java` con `@WebMvcTest`, contra los fixtures: `POST` válido → 201; sin sesión → 401; rol `ESTUDIANTE` → 403
 
 ### Implementation for User Story 1
@@ -576,13 +632,13 @@ backend/src/test/resources/contracts/
 
 - [ ] T021 [P] [US2] Pruebas en `NoShowRegistrarTest.java` con `Clock` inyectado: reserva inexistente; reserva cancelada; sin estudiante; con check-in; ventana vigente (`windowEnd` = ahora + 1 min); ventana recién vencida (`windowEnd` = ahora - 1 s, debe aceptar); duplicado
 - [ ] T022 [P] [US2] Prueba `NoShowReportIT.java` (extensión): dos `POST` concurrentes sobre la misma reserva → una fila, un solo `201`, el otro `409 DUPLICATE_NO_SHOW_REPORT` (clave única); un rechazo no deja filas en `no_show_report` ni en `outbox_message`
-- [ ] T023 [P] [US2] Pruebas en `NoShowReportControllerTest.java`: `404`, `409` (×3) y `422` contra los fixtures de Contratos §9; cada uno devuelve `ProblemDetail` con el `code` esperado
+- [ ] T023 [P] [US2] Pruebas en `NoShowReportControllerTest.java`: `404`, `409` (×3) y `422` contra los fixtures de Contratos §10; cada uno devuelve `ProblemDetail` con el `code` esperado
 
 ### Implementation for User Story 2
 
 - [ ] T024 [US2] Completar `NoShowRegistrar` con las validaciones en este orden: reserva identificable → no cancelada → estudiante identificable → no duplicado → sin check-in → ventana finalizada
 - [ ] T025 [US2] Traducir la violación de la clave única `reservation_id` a `DuplicateNoShowReportException` en `NoShowReportRepositoryAdapter`
-- [ ] T026 [US2] Mapear cada excepción de dominio a su `ProblemDetail` (`@RestControllerAdvice`) según Contratos §6
+- [ ] T026 [US2] Mapear cada excepción de dominio a su `ProblemDetail` (`@RestControllerAdvice`) según Contratos §7
 
 **Checkpoint**: ningún reporte inválido se registra, y cada rechazo informa el motivo exacto
 
@@ -613,13 +669,13 @@ backend/src/test/resources/contracts/
 ### Tests for User Story 4
 
 - [ ] T033 [P] [US4] Prueba `NoShowReportControllerTest.java` (extensión): `GET /{id}` con el dueño → 200, con otro profesor → 403; `GET` lista filtrada por `needsReview`
-- [ ] T034 [P] [US4] Prueba de `NoShowAckListener`: el ack de M2 actualiza `m2_acknowledged_at`; un ack duplicado se descarta vía `inbox_message`; un ack de un reporte inexistente se registra en log y no falla
+- [ ] T034 [P] [US4] Prueba de `NoShowAckListener` con los contratos de UC9: correlaciona `data.sourceEventId`, procesa acuses aceptados y rechazados, y descarta un ack duplicado vía `inbox_message`; un ack sin reporte correlacionable se registra y no falla
 - [ ] T035 [P] [US4] Pruebas de `NoShowReportForm` y `NoShowReviewPanel` (React Testing Library): errores del backend se muestran con su mensaje; el botón "Reintentar" solo aparece con `FAILED`
 
 ### Implementation for User Story 4
 
 - [ ] T036 [US4] Implementar `GET /api/v1/no-show-reports/{id}` y `GET /api/v1/no-show-reports` con paginación y las reglas de visibilidad por rol
-- [ ] T037 [P] [US4] Implementar `NoShowAckConsumer` y `NoShowAckListener` (**opcional hasta resolver NC-03**)
+- [ ] T037 [P] [US4] Implementar `NoShowAckConsumer` y `NoShowAckListener` para `module2.reservation.no-show-ack.v1`, deserializando `NoShowReportAcknowledged` según UC9 y correlacionando por `data.sourceEventId`
 - [ ] T038 [P] [US4] Frontend: `noShowApi.js`
 - [ ] T039 [P] [US4] Frontend: `NoShowReportForm.jsx` y `PenaltyTriggerBadge.jsx`
 - [ ] T040 [P] [US4] Frontend: `NoShowReportList.jsx` y `NoShowReviewPanel.jsx`
@@ -658,7 +714,7 @@ backend/src/test/resources/contracts/
 
 ### Dependencias con otros módulos
 
-- **Módulo 2**: consume `module3.sanctions.no-show-reported.v1` (creado por M3). Produce `module2.reservation.no-show-ack.v1` (opcional, NC-03). Es el dueño de la reserva (NC-01).
+- **Módulo 2**: consume `module3.reservation.no-show.v1` y produce `module2.reservation.no-show-ack.v1`, según UC9. Es el dueño de la reserva (NC-01).
 - **Módulo 1**: sin integración.
 
 ### Parallel Opportunities
@@ -676,7 +732,6 @@ backend/src/test/resources/contracts/
 |---|---|---|
 | NC-01 | **De dónde sale la información de una reserva sin check-in.** UC6 crea la `Usage` local a partir de `ReservationRecordCreated`, que parece representar el registro del uso (o sea, ya con check-in). Una reserva a la que nadie se presentó podría no existir nunca en M3. Opciones: (a) M2 emite un evento al crear la reserva y M3 guarda una vista local; (b) consulta REST síncrona a M2 al reportar; (c) el reporte lleva un snapshot de la reserva | Se usa `ReservationLookupPort`; el adaptador inicial lee una tabla local. Cambiar de opción solo cambia `ReservationLookupAdapter`. **Bloquea T010.** Si se elige (b), hay que añadir ese REST a la tabla de comunicación de `plan.md` |
 | NC-02 | **Si un profesor puede reportar a cualquier estudiante o solo a los de sus cursos/reservas** | Cualquier `PROFESOR` o `ADMIN` autenticado puede reportar cualquier reserva |
-| NC-03 | **Si M2 realmente produce `NoShowReportAcknowledged` y con qué payload.** El contrato figura en los planes de M3, pero la spec dice que M2 *consume* la confirmación | El consumo del ack es informativo y opcional (T037); el flujo no depende de él |
 | NC-04 | **Qué hacer con una reserva cancelada** (la spec no la menciona) | Se rechaza con `RESERVATION_NOT_FOUND` |
 | NC-05 | **Si hay un período de gracia** tras el fin de la ventana antes de poder reportar | No hay gracia: se puede reportar en cuanto `windowEnd < ahora` |
 
