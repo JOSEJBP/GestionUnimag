@@ -25,19 +25,37 @@ Casos de uso incluidos en el módulo:
 
 ## Mockups de pantalla
 
-Ver [`Pantallas.png`](./Especs/Pantallas.png): perfil del estudiante (score, penalizaciones y cobros vigentes), proceso de check-out/devolución con reporte de daño, y panel administrativo de sanciones y configuración de la escala progresiva.
+Ver [`pantallas-2-01.png`](./Especs/pantallas-2-01.png): perfil del estudiante (score, penalizaciones y cobros vigentes), proceso de check-out/devolución con reporte de daño, y panel administrativo de sanciones y configuración de la escala progresiva.
 
 ## Estructura del repositorio
 
+```text
+├── Especs/
+│   ├── Diagrama.png
+│   ├── actualizar-score-confianza.md
+│   ├── bloquear-usuario.md
+│   ├── calcular-penalizacion.md
+│   ├── generar-cobro.md
+│   ├── gitflow.md
+│   ├── notificar-sancion.md
+│   ├── pantallas-2-01.png
+│   ├── plan.md
+│   ├── plan-uc1-actualizar-score.md
+│   ├── plan-uc2-calcular-penalizacion.md
+│   ├── plan-uc3-bloquear-usuario.md
+│   ├── plan-uc-reportar-no-asistencia.md
+│   ├── plan-uc-reportar-novedad-tecnica.md
+│   ├── realizar-checkout.md
+│   ├── reportar-no-asistencia.md
+│   └── reportar-novedad-tecnica.md
+└── README.md
 ```
-├── actualizar-score-confianza.md       # Actualizar score de confianza
-├── Bloquear_usuario.md                 # Bloquear usuario
-├── Calcular_penalizacion.md            # Calcular penalización
-├── Diagrama.png                        # Diagrama de casos de uso del módulo
-├── generar-cobro.md                    # Generar cobro por daño o reposición
-├── notificar-sancion.md                # Notificar sanción
-├── Pantallas.png                       # Mockups de UI (estudiante y administración)
-├── realizar-checkout.md                # Realizar check-out
-├── reportar-no-asistencia.md           # Reportar no asistencia
-└── reportar-novedad-tecnica.md         # Reportar novedad técnica (daño)
-```
+
+## GitFlow
+
+Se usa una estrategia GitFlow mínima con dos ramas principales:
+
+- `develop`: integración y desarrollo activo
+- `master`: entrega y despliegue validado
+
+La documentación detallada está en [`Especs/gitflow.md`](./Especs/gitflow.md).

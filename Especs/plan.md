@@ -50,16 +50,33 @@ Para reportar un daño no existe una transacción única que abarque MySQL y el 
 ```text
 Especs/
 ├── plan.md                              # This file
+├── gitflow.md                           # Estrategia de ramas (develop / master)
 ├── Diagrama.png
-├── Realizar check-out.md
-├── Calcular penalizacion.md
-├── Actualizar score confianza.md
-├── Bloquear usuario.md
-├── Notificar sancion.md
-├── Reportar no asistencia.md
-├── Reportar novedad tecnica.md
-└── Generar cobro.md
+├── pantallas-2-01.png                   # Mockups de UI
+├── realizar-checkout.md
+├── calcular-penalizacion.md
+├── actualizar-score-confianza.md
+├── bloquear-usuario.md
+├── notificar-sancion.md
+├── reportar-no-asistencia.md
+├── reportar-novedad-tecnica.md
+├── generar-cobro.md
+├── plan-uc1-actualizar-score.md
+├── plan-uc2-calcular-penalizacion.md
+├── plan-uc3-bloquear-usuario.md
+├── plan-uc-reportar-no-asistencia.md
+├── plan-uc-reportar-novedad-tecnica.md
+└── ...
 ```
+
+## GitFlow
+
+Se define la estrategia de ramas como sigue:
+
+- `develop`: rama de integración y evolución del módulo.
+- `master`: rama de despliegue y entrega validada.
+
+Las reglas y el flujo recomendado están documentados en [`gitflow.md`](./gitflow.md).
 
 ### Source Code (repository root)
 
