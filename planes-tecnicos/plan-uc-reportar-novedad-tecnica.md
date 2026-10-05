@@ -1,47 +1,44 @@
 # Implementation Plan: Reportar novedad técnica — daño (UC8)
 
 **Date**: 2026-10-05
-**Spec**: [reportar-novedad-tecnica.md](./reportar-novedad-tecnica.md)
-**Plan general**: [plan.md](./plan.md)
+**Spec**: [reportar-novedad-tecnica.md](../Especs/reportar-novedad-tecnica.md)
+**Plan general**: [plan.md](../Especs/plan.md)
 **Módulo**: Módulo 3 — Sanciones y Cumplimiento
 **Planes previos**: plan-uc-realizar-check-out.md — UC6 lo invoca (`«extend»`) cuando el estudiante indica un daño al hacer check-out; aporta la `Usage` local
-**Planes relacionados**: generar-cobro.md — UC4 lo dispara obligatoriamente (`«include»`); [plan-uc3-bloquear-usuario.md](./plan-uc3-bloquear-usuario.md) — expone `BlockForDamagePort`, pero la spec de UC8 **no** pide bloquear (ver NC-05)
+**Planes relacionados**: [plan-uc3-bloquear-usuario.md](./plan-uc3-bloquear-usuario.md) — expone `BlockForDamagePort`, pero la spec de UC8 **no** pide bloquear (ver NC-05)
+**Contratos Kafka compartidos**: [plan-integracion-kafka.md](./plan-integracion-kafka.md) — consolida las integraciones de M3 con M1 y M2; el evento M1 `DamageReport` y sus campos aún por confirmar
 
 ## Summary
 
-UC8 deja **constancia de un daño** en un recurso universitario y pone en marcha sus consecuencias: cambia el estado del recurso en el Módulo 1 para que nadie más lo reciba y dispara la generación del cobro por daño o reposición (UC4). Puede originarse de dos formas: el estudiante lo reporta **durante el check-out** (P1, `«extend»` de UC6) o la **dirección universitaria** lo reporta de forma independiente, por ejemplo tras una revisión de inventario (P2).
+UC8 registra un daño y lo comunica a Módulo 1 para que el dueño del inventario actualice el estado del recurso según su contrato. Puede originarse de dos formas: el estudiante lo reporta **durante el check-out** (P1, `«extend»` de UC6) o la **dirección universitaria** lo reporta de forma independiente, por ejemplo tras una revisión de inventario (P2).
 
-UC8 **no calcula el monto del cobro** (UC4), **no bloquea al estudiante** (UC3) y **no produce eventos Kafka**: su única integración externa es una llamada REST **síncrona** al Módulo 1.
+UC8 **no bloquea al estudiante** (UC3) y comunica el daño mediante el evento Kafka que define M1 (`DamageReport`). El contrato disponible no define una confirmación de consumo de vuelta a M3; M3 solo puede informar el estado de publicación, no asegurar que M1 ya actualizó el recurso.
 
 **Enfoque técnico:**
 
 1. Expone un **puerto de entrada** (`ReportDamagePort`) con dos operaciones de registro: `reportDuringCheckOut` (lo llama UC6 en memoria) y `reportIndependent` (lo llama el controlador REST de dirección). Ambas convergen en la misma lógica; solo cambia cómo se identifica la utilización.
-2. Toda novedad se **vincula a una utilización** (`usage_id`) y, por tanto, a un estudiante. Sin utilización no hay a quién cobrar, y es lo que permite impedir duplicados con una clave única (FR-003, FR-007).
-3. El registro tiene **tres pasos**, porque no existe una transacción que abarque MySQL y el REST de M1 (`plan.md` §Module Communication):
-   - **T1 (transacción local)**: validar + `INSERT damage_report` (`resource_sync_status = PENDING`) + disparar UC4 (`GenerateChargePort`). Todo atómico: si UC4 falla, no queda un reporte sin cobro ni un registro incompleto.
-   - **Llamada a M1 (fuera de transacción)**, ejecutada *después del commit* mediante un listener `AFTER_COMMIT`: `ResourceModuleClient.changeStatus(...)`.
-   - **T2 (transacción local corta)**: marcar el reporte `SYNCED`, o `FAILED` + `needs_review` si M1 falla.
-4. Si M1 no confirma, **el reporte y el cobro se conservan** y se marca la inconsistencia para revisión (Edge Case de la spec, `plan.md`). Un job de reintento y un endpoint manual reenvían el cambio de estado; la llamada es idempotente.
+2. Cuando el daño corresponde a una utilización identificable, el reporte conserva esa relación para trazabilidad y deduplicación (FR-003, FR-006).
+3. El registro local del reporte y la inserción del evento en el outbox son atómicos. El publicador Kafka compartido administra los reintentos de entrega.
+4. El evento `DamageReport` informa a M1 del daño; M1 decide y actualiza el estado del recurso. La entrega al broker no se interpreta como confirmación de que M1 ya aplicó el cambio.
 5. La **evidencia** (fotografías) es opcional y se adjunta en una operación aparte, para no complicar el flujo de check-out con subidas de archivos (FR-004).
-6. El UC tiene **4 user stories**: reporte durante el check-out (US1), reporte independiente (US2), manejo de rechazos y de la falla de M1 (US3) y evidencia + consulta + pantalla (US4). La spec declara US1 y US2; US3 y US4 se derivan de los Edge Cases y de FR-004.
+6. El UC tiene **4 user stories**: reporte durante el check-out (US1), reporte independiente (US2), manejo de rechazos y de fallas de publicación (US3) y evidencia + consulta + pantalla (US4). La spec declara US1 y US2; US3 y US4 se derivan de los Edge Cases y de FR-004.
 
 ## Technical Context
 
 **Language/Version**: Java 21 (backend); JavaScript con React + Vite (frontend)
-**Primary Dependencies**: Spring Boot 4.x (Web, Data JPA, Validation, Security OAuth2 Resource Server, Spring Scheduling), `RestClient` para M1, Flyway, springdoc-openapi. **Ninguna nueva** respecto a `plan.md`. **No usa Spring for Apache Kafka**: UC8 no publica ni consume Kafka.
-**Storage**: MySQL 8. UC8 **escribe** `damage_report` y `damage_evidence`. **Lee** `usage` (de UC6) para identificar la utilización. Los archivos de evidencia se guardan en un volumen de disco detrás de `EvidenceStoragePort` (NC-04).
-**Testing**: JUnit 5 + Mockito (dominio y casos de uso), `@WebMvcTest` (controladores), Testcontainers MySQL (persistencia, unicidad, transacciones), WireMock (M1: éxito, error, timeout), ArchUnit (regla de dependencias entre capas).
+**Primary Dependencies**: Spring Boot 4.x (Web, Data JPA, Validation, Security OAuth2 Resource Server, Spring for Apache Kafka, Flyway, springdoc-openapi). Reutiliza el outbox y la configuración Kafka de M3.
+**Storage**: MySQL 8 para `damage_report`, `damage_evidence` y los metadatos de evidencia; UC8 **lee** `usage` (de UC6) para identificar la utilización. Guardar los bytes en almacenamiento persistente separado, tras `EvidenceStoragePort`, es una propuesta pendiente de concretar en NC-04; MySQL no almacena los archivos.
+**Testing**: JUnit 5 + Mockito (dominio y casos de uso), `@WebMvcTest` (controladores), Testcontainers MySQL y Kafka (persistencia, unicidad, outbox/publicación), ArchUnit (regla de dependencias entre capas).
 **Target Platform**: Servidor Linux con JVM 21; navegador web para el frontend.
 **Project Type**: Web: backend y frontend separados (React + Vite).
-**Performance Goals**: registrar el reporte en **menos de 2 segundos** desde que se recibe la información (SC-004). T1 es local y corta; la llamada a M1 tiene un *timeout* de 1,5 s para no exceder el presupuesto.
+**Performance Goals**: registrar el reporte en **menos de 2 segundos** desde que se recibe la información (SC-004). El flujo de registro solo persiste el reporte y el evento en el outbox; no espera a que M1 procese el mensaje.
 **Constraints**:
-- Un solo reporte de daño por utilización, garantizado por clave única en BD (FR-007, SC-003).
-- Descripción obligatoria (FR-008); la evidencia es opcional (FR-004).
-- Todo reporte registrado con éxito dispara UC4 (FR-005, SC-001): por eso UC4 se llama dentro de T1.
-- El cambio de estado del recurso exige **confirmación síncrona** de M1; no se asume que cambió si M1 no respondió con éxito (`plan.md`).
+- Un solo reporte de daño por utilización, garantizado por clave única en BD (FR-006, SC-003).
+- Descripción obligatoria (FR-007); la evidencia es opcional (FR-004).
+- El cambio de estado del recurso es responsabilidad de M1; publicar el evento no equivale a confirmar la transición.
 - Si el reporte no puede registrarse, no debe quedar un registro incompleto: T1 es atómica.
 - La zona horaria es `America/Bogota`.
-**Scale/Scope**: Mismo orden que M2 (miles de estudiantes y recursos). Una sección de daño dentro de la pantalla de check-out, una pantalla de reporte para dirección y un panel de revisión de inconsistencias.
+**Scale/Scope**: Mismo orden que M2 (miles de estudiantes y recursos). Una sección de daño dentro de la pantalla de check-out y una pantalla de reporte/consulta para dirección.
 
 ## Integración con otros módulos
 
@@ -49,11 +46,11 @@ UC8 **no calcula el monto del cobro** (UC4), **no bloquea al estudiante** (UC3) 
 
 **UC8 no consume eventos de M1 ni de M2.** Su disparador es una persona (estudiante en el check-out, o dirección) y, internamente, UC6.
 
-**Contrato REST de M1:** la spec y `plan.md` fijan *que* M3 debe llamar a M1 de forma síncrona para cambiar el estado, pero **el endpoint concreto de M1 no está en los documentos disponibles**. La sección Contratos §4 propone una forma mínima, marcada como **NC-01**, para contrastarla con el plan de M1 antes de implementar. No se redefine nada de M1: se adapta M3 a lo que M1 publique.
+M3 no consulta ni recibe el costo del recurso desde M1.
 
 ### Lo que M3 produce para M1 y M2 (creado por M3)
 
-**UC8 no produce eventos Kafka.** El cobro generado y su notificación al estudiante son responsabilidad de UC4 (que decide si publica a M2). El único efecto hacia otro módulo es la llamada REST a M1.
+M3 publica `DamageReport` para M1 conforme a los nombres del borrador de M1; el topic, la clave Kafka y varios campos requieren confirmación. Ver [plan-integracion-kafka.md](./plan-integracion-kafka.md). M1 consume el evento y decide/aplica la actualización del recurso. La publicación al broker no confirma su consumo ni la aplicación del cambio.
 
 ### Endpoints que M3 expone para M2 y M1
 
@@ -66,10 +63,9 @@ UC8 **no calcula el monto del cobro** (UC4), **no bloquea al estudiante** (UC3) 
 | *(dentro de `POST` de check-out de UC6)* | POST | El estudiante indica el daño al hacer check-out; UC6 llama a `reportDuringCheckOut` | `ESTUDIANTE` o `MONITOR` |
 | `POST /api/v1/admin/damage-reports` | POST | Dirección reporta un daño de forma independiente | `ADMIN` o `DIRECCION_PROGRAMA` |
 | `GET /api/v1/damage-reports/{id}` | GET | Consultar un reporte (el estudiante solo si es el titular de la utilización) | `ESTUDIANTE`, `MONITOR`, `ADMIN` o `DIRECCION_PROGRAMA` |
-| `GET /api/v1/admin/damage-reports` | GET | Listar reportes; filtrar por `needsReview` o `resourceId` | `ADMIN` o `DIRECCION_PROGRAMA` |
+| `GET /api/v1/admin/damage-reports` | GET | Listar reportes; filtrar por `publicationStatus` o `resourceId` | `ADMIN` o `DIRECCION_PROGRAMA` |
 | `POST /api/v1/damage-reports/{id}/evidence` | POST (multipart) | Adjuntar fotografías a un reporte | quien reportó, o `ADMIN` |
 | `GET /api/v1/damage-reports/{id}/evidence/{evidenceId}` | GET | Descargar una evidencia | `ADMIN`, `DIRECCION_PROGRAMA` o el titular |
-| `POST /api/v1/admin/damage-reports/{id}/retry-resource-sync` | POST | Reintentar el cambio de estado en M1 | `ADMIN` |
 
 ## Project Structure
 
@@ -78,9 +74,9 @@ UC8 **no calcula el monto del cobro** (UC4), **no bloquea al estudiante** (UC3) 
 ```text
 Especs/
 ├── plan.md                                    # Plan general del M3
+├── plan-integracion-kafka.md                   # Contratos Kafka M3↔M1/M2 y asuntos por confirmar
 ├── reportar-novedad-tecnica.md                 # Spec de este plan
 ├── realizar-checkout.md                       # «extend» que lo invoca
-├── generar-cobro.md                            # «include» que dispara
 └── ...                                         # resto de specs
 ```
 
@@ -94,7 +90,7 @@ backend/
 │   ├── presentation/
 │   │   ├── controller/
 │   │   │   ├── DamageReportController.java            # GET {id}, evidencia (subir/descargar)
-│   │   │   └── AdminDamageReportController.java       # POST, GET list, retry-resource-sync
+│   │   │   └── AdminDamageReportController.java       # POST y GET list
 │   │   └── dto/
 │   │       ├── DamageReportRequest.java
 │   │       ├── DamageReportResponse.java
@@ -104,19 +100,15 @@ backend/
 │   ├── business/
 │   │   ├── service/
 │   │   │   ├── DamageReportService.java               # implementa ReportDamagePort
-│   │   │   ├── DamageReportRegistrar.java             # @Transactional: validar + guardar + UC4 (T1)
-│   │   │   ├── ResourceStatusSynchronizer.java        # llamada a M1 + marcado (T2)
+│   │   │   ├── DamageReportRegistrar.java             # @Transactional: validar + guardar + outbox
 │   │   │   └── DamageEvidenceService.java             # implementa AttachDamageEvidencePort
-│   │   └── event/
-│   │       └── ResourceSyncListener.java              # @TransactionalEventListener(AFTER_COMMIT)
 │   │
 │   ├── domain/
 │   │   ├── model/
-│   │   │   ├── DamageReport.java                      # recurso, utilización, descripción, estado de sincronización
+│   │   │   ├── DamageReport.java                      # recurso, utilización, descripción y publicación
 │   │   │   ├── DamageEvidence.java                    # metadatos de una fotografía
 │   │   │   ├── DamageSource.java                      # enum: CHECK_OUT, INDEPENDENT
-│   │   │   ├── ResourceTargetStatus.java              # enum: MAINTENANCE, OUT_OF_SERVICE
-│   │   │   ├── ResourceSyncStatus.java                # enum: PENDING, SYNCED, FAILED
+│   │   │   ├── DamagePublicationStatus.java           # enum: PENDING, PUBLISHED, FAILED
 │   │   │   └── UsageView.java                         # vista mínima de la utilización (de UC6)
 │   │   ├── port/
 │   │   │   ├── in/
@@ -126,11 +118,11 @@ backend/
 │   │   │       ├── DamageReportRepository.java
 │   │   │       ├── DamageEvidenceRepository.java
 │   │   │       ├── UsageLookupPort.java               # utilización por id / última por recurso (de UC6)
-│   │   │       ├── ResourceModuleClient.java          # REST síncrono a M1
-│   │   │       ├── GenerateChargePort.java            # salida hacia UC4
+│   │   │       ├── DamageReportPublisherPort.java     # publicación del evento a M1
 │   │   │       └── EvidenceStoragePort.java           # guardar/leer archivos
 │   │   ├── event/
-│   │   │   └── DamageReportRegisteredEvent.java       # evento de dominio interno (dispara la sincronización)
+│   │   │   ├── DamageReportRegisteredEvent.java       # evento interno para persistir en outbox
+│   │   │   └── DamageReportRegistrationRejected.java  # rechazo conocido comunicado al llamador UC6
 │   │   └── error/
 │   │       ├── ResourceNotIdentifiedException.java
 │   │       ├── MissingDescriptionException.java
@@ -156,17 +148,16 @@ backend/
 │       │           └── DamageEvidenceMapper.java
 │       ├── integration/
 │       │   └── module1/
-│       │       └── rest/
-│       │           ├── ResourceModuleRestClient.java  # implementa ResourceModuleClient (timeout 1,5 s)
-│       │           └── dto/
-│       │               └── ResourceStatusUpdateRequest.java
+│       │       └── kafka/
+│       │           └── DamageReportEventMapper.java  # mapea al esquema acordado con M1
+│       ├── messaging/
+│       │   ├── kafka/
+│       │   │   └── DamageReportPublisher.java        # publica el evento pendiente del outbox
+│       │   └── outbox/                                # outbox compartido de M3
 │       ├── storage/
 │       │   └── LocalEvidenceStorage.java              # implementa EvidenceStoragePort sobre un volumen
-│       ├── scheduler/
-│       │   └── ResourceSyncRetryScheduler.java        # @Scheduled: reintenta los FAILED
 │       └── config/
 │           ├── SecurityConfig.java
-│           ├── RestClientConfig.java                  # timeouts de M1
 │           └── UseCasesConfig.java
 │
 ├── src/main/resources/
@@ -179,30 +170,29 @@ backend/
     ├── contract/
     │   ├── AdminDamageReportControllerTest.java
     │   ├── DamageReportControllerTest.java
-    │   └── ResourceModuleClientContractTest.java       # WireMock contra el contrato de M1
+    │   └── DamageReportEventContractTest.java          # payload/topic/key según M1
     ├── integration/
-    │   ├── DamageReportIT.java                         # persistencia, unicidad, T1 atómica con UC4
-    │   ├── DamageResourceSyncIT.java                   # AFTER_COMMIT, M1 éxito/fallo/timeout, reintento
+    │   ├── DamageReportIT.java                         # persistencia, unicidad y outbox atómico
+    │   ├── DamageReportPublishIT.java                  # publicación desde outbox a Kafka
     │   └── DamageEvidenceIT.java
     └── unit/
         ├── DamageReportServiceTest.java
         ├── DamageReportRegistrarTest.java
-        └── ResourceStatusSynchronizerTest.java
+        └── DamageReportPublisherTest.java
 
 frontend/
 └── src/
     ├── pages/
-    │   └── DamageReportPage.jsx                        # reporte independiente + consulta + revisión (dirección)
+    │   └── DamageReportPage.jsx                        # reporte independiente + consulta (dirección)
     ├── components/
     │   ├── DamageReportForm.jsx                        # descripción + evidencia; reusado dentro de CheckOutPage
     │   ├── DamageEvidenceUploader.jsx                  # selector de fotos con vista previa
-    │   ├── ResourceSyncBadge.jsx                       # PENDING / SYNCED / FAILED
-    │   └── DamageReviewPanel.jsx                       # reportes con needsReview + botón reintentar
+    │   └── DamagePublicationBadge.jsx                  # estado de entrega al broker
     └── services/
         └── damageReportApi.js                          # cliente HTTP
 ```
 
-**Structure Decision**: se respeta la estructura de capas de `plan.md` (presentation / business / domain / infrastructure) con el paquete raíz `com.university.sanctions`. Siguiendo los planes los demás UC, los contratos viven como puertos en `domain/port/in` y `domain/port/out`; `ResourceModuleClient` (que `plan.md` ubica en `business/integration`) se declara aquí como puerto de salida para ser consistente con los demás planes, y su implementación REST vive en `infrastructure/integration/module1/rest`, como indica `plan.md`. La llamada a M1 se separa de la transacción de registro mediante un evento de dominio interno (`DamageReportRegisteredEvent`) escuchado después del commit. El frontend reutiliza `DamageReportForm.jsx` dentro de la pantalla de check-out de UC6.
+**Structure Decision**: se respeta la estructura de capas de `plan.md` con el paquete raíz `com.university.sanctions`. Los puertos viven en `domain/port`; el adaptador Kafka de M1 y la publicación mediante outbox viven en infraestructura. Reporte y outbox se guardan en la misma transacción. El frontend reutiliza `DamageReportForm.jsx` dentro de la pantalla de check-out de UC6.
 
 ## Decisiones de diseño de este caso de uso
 
@@ -214,41 +204,40 @@ frontend/
 | FR-002 | Reporte independiente por dirección universitaria | `AdminDamageReportController.POST` → `ReportDamagePort.reportIndependent(...)` |
 | FR-003 | Identificar recurso, utilización y estudiante | `UsageLookupPort` + `DamageReportRegistrar` (regla de vinculación, ver decisión 3) |
 | FR-004 | Registrar descripción y, si existe, evidencia | Descripción en T1; evidencia con `AttachDamageEvidencePort` (`DamageEvidenceService`) |
-| FR-005 | Disparar obligatoriamente Generar cobro | `DamageReportRegistrar` llama a `GenerateChargePort.generate(...)` dentro de T1 |
-| FR-006 | Actualizar el estado del recurso en M1 | `ResourceSyncListener` → `ResourceStatusSynchronizer` → `ResourceModuleClient.changeStatus(...)` |
-| FR-007 | Impedir reporte duplicado por utilización | Clave única en `damage_report.usage_id` + verificación previa |
-| FR-008 | Informar recurso no identificado o descripción faltante | `ResourceNotIdentifiedException`, `MissingDescriptionException` → `ProblemDetail` |
+| FR-005 | Comunicar el reporte a M1 para que actualice el recurso | Outbox + `DamageReportPublisher` publica el evento M1 |
+| FR-006 | Impedir reporte duplicado por utilización | Clave única en `damage_report.usage_id` + verificación previa |
+| FR-007 | Informar recurso no identificado o descripción faltante | `ResourceNotIdentifiedException`, `MissingDescriptionException` → `ProblemDetail` |
 
 **Decisiones justificadas.**
 
-1. **El cobro se dispara dentro de la transacción de registro; el cambio de estado en M1, después.** SC-001 exige que el 100 % de los reportes registrados disparen el cobro, y "evitar dejar un registro incompleto" exige atomicidad. Meter `GenerateChargePort` en T1 da ambas cosas: o hay reporte *y* cobro, o ninguno. En cambio M1 es REST y no puede participar de la transacción MySQL; por eso va después del commit y su fallo **no** revierte el reporte (Edge Case "Error al cambiar el estado del recurso").
+1. **El reporte local y el evento son atómicos.** UC8 no llama a M1 por REST. La transacción de M3 guarda el reporte y su evento en el outbox; una falla posterior de Kafka no pierde el reporte y se gestiona con los reintentos compartidos del publicador.
 
-2. **La llamada a M1 va en un listener `AFTER_COMMIT`, no dentro de `@Transactional`.** Mantener una transacción de BD abierta mientras se espera una respuesta HTTP bloquea conexiones y, si M1 se demora, alarga el bloqueo de filas. El listener se ejecuta de forma síncrona en el mismo hilo (no `@Async`), así la respuesta HTTP incluye el resultado real de M1 (`resourceSyncStatus`), que es lo que `plan.md` pide: confirmar antes de considerar actualizado el recurso.
+2. **M1 es responsable de la transición del inventario.** M3 publica el evento con el contrato de M1; el estado de publicación no representa un acuse de M1 ni se refleja como estado final del recurso.
 
 3. **Regla de vinculación a una utilización.** Es el punto más delicado de la spec:
    - *Durante el check-out*: la utilización es la del check-out en curso; UC6 pasa `usageId`.
    - *Independiente, con `usageId` explícito*: se valida que la utilización exista y que corresponda al `resourceId` indicado.
    - *Independiente, sin `usageId`*: se usa la **última utilización cerrada** del recurso, siempre que el recurso **no esté actualmente en uso por otra persona**.
-   - *Recurso actualmente en uso (posible reasignación)*: no se puede saber con certeza si el daño ocurrió en la utilización anterior o en la actual. La spec permite "vincular a la última utilización identificable antes de la reasignación, o rechazarlo si no puede determinarse con certeza". Se elige la opción **conservadora**: rechazar con `USAGE_NOT_DETERMINABLE` salvo que dirección indique `usageId`. Un cobro a la persona equivocada es peor que pedir un dato más.
-   - *Recurso sin ninguna utilización*: se rechaza con `USAGE_NOT_DETERMINABLE` (sin estudiante no hay a quién cobrar; NC-03).
+   - *Recurso actualmente en uso (posible reasignación)*: no se puede saber con certeza si el daño ocurrió en la utilización anterior o en la actual. La spec permite "vincular a la última utilización identificable antes de la reasignación, o rechazarlo si no puede determinarse con certeza". Se elige la opción **conservadora**: rechazar con `USAGE_NOT_DETERMINABLE` salvo que dirección indique `usageId`. No se atribuye un daño a una persona si no se puede establecer la utilización correcta.
+   - *Recurso sin ninguna utilización*: se registra el daño asociado al recurso, con `usageId` y `studentCode` vacíos; no se atribuye el reporte a una persona (NC-03).
 
-4. **`usage_id` obligatorio y `UNIQUE`.** Aunque la spec dice que la utilización y el estudiante se identifican "cuando aplique" (FR-003), el cobro (FR-005) siempre necesita un estudiante. Con `usage_id NOT NULL UNIQUE`, FR-007 y SC-003 se garantizan en la base de datos incluso con dos reportes simultáneos. La verificación previa solo da el mensaje claro; la clave única es la garantía real.
+4. **Unicidad por utilización.** `usage_id` es opcional y único cuando existe, conforme a FR-006; los reportes no asociados a una utilización no se atribuyen a un estudiante.
 
-5. **Un daño durante el check-out aborta el check-out si es inválido.** Si el estudiante marca "tiene daño" pero no escribe la descripción, `MissingDescriptionException` se propaga a UC6 y el check-out no se cierra a medias, para que el estudiante pueda corregir (NC-02 para confirmarlo con UC6).
+5. **Un reporte de daño inválido no debe bloquear el check-out.** UC6 declara que el check-out se registra normalmente aunque el reporte de daño no pueda iniciarse. Para un rechazo de negocio conocido, UC8 no guarda reporte ni evento M1 y emite el evento interno `DamageReportRegistrationRejected`. El consumidor previsto en UC6 queda pendiente (NC-02); los fallos inesperados de infraestructura se exponen explícitamente.
 
-6. **Estado destino configurable, no inventado por el estudiante.** La spec dice "En mantenimiento" o "Fuera de servicio". El estudiante no tiene criterio técnico para elegir, así que en el check-out se usa el valor por defecto `sanctions.damage.default-resource-status = MAINTENANCE`. Dirección puede indicar `OUT_OF_SERVICE` en el reporte independiente.
+6. **M3 no elige el estado de inventario.** El evento informa el daño según el contrato de M1; M1 determina y aplica la transición permitida.
 
-7. **Idempotencia de la llamada a M1 con `Idempotency-Key = reportId`.** El reintento (manual o por job) puede llegar a M1 más de una vez; con la misma clave, M1 debe tratar la repetición como un no-op. Cambiar a `MAINTENANCE` un recurso que ya está en `MAINTENANCE` es seguro de todos modos (NC-01).
+7. **Idempotencia del evento.** Se conserva el mismo identificador al reintentar la publicación; el nombre canónico del campo debe confirmarse por la inconsistencia `eventoId`/`eventId` (NC-01). La intención documentada es usar el recurso como clave para preservar su orden; su nombre y tipo están pendientes.
 
-8. **Reintento automático además del manual.** Mientras M1 no confirme, el recurso puede seguir apareciendo como disponible y ser asignado a otro estudiante — justo lo que SC-002 busca evitar. Por eso, a diferencia de UC7, aquí sí hay un job (`ResourceSyncRetryScheduler`, cada 1 minuto, máximo `sanctions.damage.sync.max-attempts = 10`) que reenvía los `FAILED`. Tras agotar los intentos queda `needs_review = true` para intervención humana. Sigue existiendo el endpoint manual.
+8. **Reintento de publicación compartido.** Los errores de envío a Kafka se procesan por la infraestructura outbox común de M3. UC8 no define un scheduler, endpoint de reintento ni confirmación de consumo que el contrato de M1 no ofrece.
 
 9. **La evidencia se sube aparte del reporte.** Enviar archivos dentro del flujo de check-out de UC6 obligaría a convertir ese endpoint en `multipart` y alargaría el camino crítico. Con `POST /damage-reports/{id}/evidence`, el reporte se registra rápido (SC-004) y las fotos llegan después. Límites propuestos: máximo 5 archivos por reporte, 5 MB cada uno, solo `image/jpeg` y `image/png` (NC-04).
 
-10. **UC8 no bloquea al estudiante (por ahora).** El plan de UC3 dice que UC8 llama a `BlockForDamagePort.block` "cuando hay daño grave", pero la spec de UC8 no define "daño grave", ni gravedad, ni bloqueo. Para no inventar reglas, **no se implementa** esa llamada y se registra como **NC-05**. Cuando se decida, es una línea más en `DamageReportRegistrar` (y un campo `severity` en el reporte).
+10. **UC8 no bloquea al estudiante (por ahora).** El plan de UC3 dice que UC8 llama a `BlockForDamagePort.block` "cuando hay daño grave", pero la spec de UC8 no define "daño grave", ni gravedad, ni bloqueo. Para no inventar reglas, **no se implementa** esa llamada y se registra como **NC-05**.
 
-11. **UC8 no publica a Kafka.** Ni `plan.md` ni la spec definen una notificación del reporte de daño; la integración declarada es solo REST con M1. Publicar eventos que nadie consume es ruido. El cobro se notifica desde UC4.
+11. **UC8 publica el evento Kafka de M1.** El evento se escribe en el outbox junto con el reporte y se envía al topic propuesto por M1, cuyo nombre final queda pendiente de NC-01.
 
-12. **El reporte no se elimina ni se edita.** Es evidencia para un cobro. Solo cambian los campos de seguimiento de la sincronización y se pueden añadir evidencias.
+12. **El reporte no se elimina ni se edita.** Es evidencia de la novedad comunicada a M1; se pueden añadir evidencias.
 
 ## Contratos
 
@@ -261,12 +250,9 @@ public interface ReportDamagePort {
 
     /**
      * Lo llama Realizar check-out (UC6) cuando el estudiante indica un daño.
-     * Se ejecuta dentro de la transacción del check-out.
-     * @throws MissingDescriptionException      falta la descripción del daño
-     * @throws ResourceNotIdentifiedException   el recurso no pudo identificarse
-     * @throws DuplicateDamageReportException   ya existe un reporte para la utilización
+     * Un rechazo de negocio se devuelve como resultado y no impide completar UC6.
      */
-    DamageReportResult reportDuringCheckOut(ReportDamageDuringCheckOutCommand command);
+    ReportDamageAttemptResult reportDuringCheckOut(ReportDamageDuringCheckOutCommand command);
 
     /**
      * Lo llama el controlador de dirección universitaria.
@@ -275,9 +261,16 @@ public interface ReportDamagePort {
      */
     DamageReportResult reportIndependent(ReportDamageIndependentCommand command);
 
-    /** Reenvía el cambio de estado del recurso a M1 para un reporte en FAILED. */
-    DamageReportResult retryResourceSync(String reportId, String adminCode);
 }
+
+public sealed interface ReportDamageAttemptResult
+    permits DamageReportAccepted, DamageReportRejected {}
+
+public record DamageReportAccepted(DamageReportResult report)
+    implements ReportDamageAttemptResult {}
+
+public record DamageReportRejected(DamageReportRegistrationRejected rejection)
+    implements ReportDamageAttemptResult {}
 
 public record ReportDamageDuringCheckOutCommand(
     String usageId,
@@ -289,7 +282,6 @@ public record ReportDamageIndependentCommand(
     String resourceId,
     String usageId,              // opcional
     String description,
-    ResourceTargetStatus targetStatus, // opcional; por defecto MAINTENANCE
     String reporterCode          // dirección, del JWT
 ) {}
 
@@ -298,9 +290,7 @@ public record DamageReportResult(
     String resourceId,
     String usageId,
     String studentCode,
-    String chargeId,
-    ResourceSyncStatus resourceSyncStatus,
-    boolean needsReview,
+    DamagePublicationStatus publicationStatus,
     Instant reportedAt
 ) {}
 ```
@@ -316,22 +306,6 @@ public interface AttachDamageEvidencePort {
 
 ### 3. Puertos de salida
 
-`GenerateChargePort` — lo implementa **UC4**; UC8 lo llama dentro de T1:
-
-```java
-public interface GenerateChargePort {
-    ChargeRef generate(GenerateChargeCommand command);
-}
-
-public record GenerateChargeCommand(
-    String studentCode,
-    String resourceId,
-    String usageId,
-    String reason,            // "DAMAGE"
-    String sourceEventId      // = damageReportId, para idempotencia en UC4
-) {}
-```
-
 `UsageLookupPort` — se alimenta de la `usage` local de UC6:
 
 ```java
@@ -345,36 +319,15 @@ public record UsageView(String usageId, String resourceId, String studentCode,
                         Instant startedAt, Instant endedAt) {}  // endedAt nulo si sigue en curso
 ```
 
-`ResourceModuleClient` — REST síncrono a M1:
+### 4. Contrato Kafka con M1
 
-```java
-public interface ResourceModuleClient {
-    /** Devuelve normalmente si M1 confirmó; lanza ResourceModuleException si falló o expiró. */
-    void changeStatus(String resourceId, ResourceTargetStatus status, String idempotencyKey, String reason);
-}
-```
+El contrato se centraliza en [plan-integracion-kafka.md](./plan-integracion-kafka.md). Allí se documentan los nombres usados en `KAFKA.md` y `PLAN (2).md`, el ejemplo de `DamageReport` y sus inconsistencias. No se fija un DTO final ni se cambia la nomenclatura del borrador hasta confirmar el esquema con M1. El evento se guarda en el outbox junto con el reporte; el publicador compartido lo entrega a Kafka y conserva/reintenta fallos de publicación. El acuse del broker no confirma consumo ni actualización del recurso por M1.
 
-### 4. Contrato REST con M1 (propuesta — **NC-01**)
+### 5. Contrato de rechazo del intento desde UC6
 
-Debe contrastarse con el plan de M1; si M1 publica otra forma, solo cambia `ResourceModuleRestClient`.
+Si UC8 rechaza el intento por un motivo de negocio conocido, produce el evento interno `DamageReportRegistrationRejected`, definido con su esquema en [plan-integracion-kafka.md](./plan-integracion-kafka.md). No se publica a Kafka ni a M1. UC6 es el consumidor previsto, pero los otros planes aún no lo procesan. El rechazo no crea reporte ni evento `DamageReport`; los errores inesperados de infraestructura se propagan explícitamente.
 
-```http
-PUT /api/v1/resources/{resourceId}/status
-Idempotency-Key: 7d1c3e52-9a04-4f67-b1c8-3e5a2d9f6b10
-Authorization: Bearer <token de servicio de M3>
-```
-
-```json
-{
-  "status": "MAINTENANCE",
-  "reason": "Daño reportado en M3",
-  "sourceReportId": "7d1c3e52-9a04-4f67-b1c8-3e5a2d9f6b10"
-}
-```
-
-Respuesta esperada: `200 OK` (o `204`) = confirmado. Cualquier `4xx/5xx`, error de conexión o *timeout* (1,5 s) = **no confirmado** → `FAILED`. Un `404` de M1 (recurso inexistente) se registra con `failure_reason = RESOURCE_NOT_FOUND_IN_M1` y pasa directo a `needs_review` sin reintentos automáticos.
-
-### 5. Endpoints REST
+### 6. Endpoints REST de M3
 
 #### `POST /api/v1/admin/damage-reports`
 
@@ -384,14 +337,11 @@ Rol `ADMIN` o `DIRECCION_PROGRAMA`. El reportante sale del JWT.
 {
   "resourceId": "ACT-004512",
   "usageId": "usg-20260930-0187",
-  "description": "La pantalla del portátil presenta una fisura en la esquina inferior derecha.",
-  "targetStatus": "MAINTENANCE"
+  "description": "La pantalla del portátil presenta una fisura en la esquina inferior derecha."
 }
 ```
 
-`usageId` y `targetStatus` son opcionales.
-
-Respuesta `201 Created` (M1 confirmó):
+`usageId` es opcional cuando la novedad puede identificarse sin una utilización; las reglas de vinculación se validan antes del registro. `201 Created` confirma el registro local del reporte y del mensaje outbox, no el procesamiento de M1:
 
 ```json
 {
@@ -401,41 +351,16 @@ Respuesta `201 Created` (M1 confirmó):
   "studentCode": "2023123456",
   "source": "INDEPENDENT",
   "description": "La pantalla del portátil presenta una fisura en la esquina inferior derecha.",
-  "targetStatus": "MAINTENANCE",
   "reportedBy": "direccion@unimagdalena.edu.co",
   "reportedAt": "2026-10-05T11:15:00-05:00",
-  "chargeId": "chg-10231",
-  "resourceSyncStatus": "SYNCED",
-  "needsReview": false,
-  "evidence": [],
-  "message": "Daño registrado. El recurso pasó a mantenimiento y se generó el cobro correspondiente."
+  "publicationStatus": "PENDING",
+  "evidence": []
 }
 ```
-
-Respuesta `201 Created` (reporte registrado, M1 no confirmó — Edge Case de la spec):
-
-```json
-{
-  "id": "5a8f1c2e-3b74-4d09-9e16-7c2b0a4d8f35",
-  "resourceId": "ACT-004512",
-  "usageId": "usg-20260930-0187",
-  "studentCode": "2023123456",
-  "source": "INDEPENDENT",
-  "targetStatus": "MAINTENANCE",
-  "reportedAt": "2026-10-05T11:15:00-05:00",
-  "chargeId": "chg-10231",
-  "resourceSyncStatus": "FAILED",
-  "needsReview": true,
-  "evidence": [],
-  "message": "El daño quedó registrado, pero el estado del recurso no pudo actualizarse. Quedó marcado para revisión."
-}
-```
-
-> Un fallo de M1 **no es un error HTTP**: el reporte y el cobro sí existen, por eso `201` con `resourceSyncStatus: FAILED`.
 
 #### Reporte durante el check-out
 
-No tiene endpoint propio: el cuerpo del check-out de UC6 incluye un bloque opcional que UC6 delega a `reportDuringCheckOut(...)`. Este plan define la forma de ese bloque; UC6 debe incluirla en su contrato:
+No tiene endpoint propio: UC6 incluye un bloque opcional `damage` en el check-out y delega su registro a `reportDuringCheckOut(...)`:
 
 ```json
 {
@@ -446,51 +371,27 @@ No tiene endpoint propio: el cuerpo del check-out de UC6 incluye un bloque opcio
 }
 ```
 
-Y la respuesta del check-out incorpora `damageReport` con `id`, `chargeId` y `resourceSyncStatus`.
+La respuesta del check-out puede incluir `damageReport` con su identificador y `publicationStatus`; no afirma que M1 ya actualizó el recurso.
 
-#### `GET /api/v1/damage-reports/{id}`
+#### Consulta y evidencia
 
-Devuelve el mismo objeto del `201`. Un estudiante solo puede ver el reporte de su propia utilización (`403` si no).
+- `GET /api/v1/damage-reports/{id}` devuelve el reporte; el estudiante solo puede consultar el de su utilización.
+- `GET /api/v1/admin/damage-reports?publicationStatus=FAILED&resourceId=ACT-004512&page=1&pageSize=20` lista reportes con filtros y paginación. Los fallos se refieren a publicación, no a actualización del inventario por M1.
+- `POST /api/v1/damage-reports/{id}/evidence` recibe `multipart/form-data` con un campo `file`; respuesta `201 Created` con metadatos de evidencia.
+- `GET /api/v1/damage-reports/{id}/evidence/{evidenceId}` descarga evidencia autorizada.
 
-#### `GET /api/v1/admin/damage-reports?needsReview=true&resourceId=ACT-004512&page=1&pageSize=20`
+No se define endpoint UC8 para reintentar ni para cambiar el estado en M1; los reintentos Kafka pertenecen al publicador/outbox compartido.
 
-```json
-{
-  "reports": [ { "id": "5a8f1c2e-...", "resourceId": "ACT-004512", "studentCode": "2023123456", "resourceSyncStatus": "FAILED", "needsReview": true, "reportedAt": "2026-10-05T11:15:00-05:00" } ],
-  "pagination": { "page": 1, "pageSize": 20, "totalPages": 1, "total": 1 }
-}
-```
-
-#### `POST /api/v1/damage-reports/{id}/evidence`
-
-`multipart/form-data` con un campo `file`. Respuesta `201 Created`:
-
-```json
-{
-  "id": "evd-0001",
-  "reportId": "5a8f1c2e-3b74-4d09-9e16-7c2b0a4d8f35",
-  "fileName": "pantalla.jpg",
-  "contentType": "image/jpeg",
-  "sizeBytes": 1843201,
-  "uploadedAt": "2026-10-05T11:17:00-05:00"
-}
-```
-
-#### `POST /api/v1/admin/damage-reports/{id}/retry-resource-sync`
-
-Rol `ADMIN`. Sin cuerpo. `200 OK` con el reporte actualizado (`SYNCED` o, si M1 vuelve a fallar, `FAILED`). `409 RESOURCE_ALREADY_SYNCED` si ya estaba sincronizado.
-
-### 6. Errores
+### 7. Errores
 
 | Código HTTP | `code` | Cuándo |
 |---|---|---|
-| 400 | `MISSING_DESCRIPTION` | Falta la descripción del daño (FR-008) |
+| 400 | `MISSING_DESCRIPTION` | Falta la descripción del daño (FR-007) |
 | 400 | `INVALID_EVIDENCE` | Tipo no permitido, archivo > 5 MB o más de 5 archivos |
-| 404 | `RESOURCE_NOT_IDENTIFIED` | No fue posible identificar el recurso asociado (FR-008) |
+| 404 | `RESOURCE_NOT_IDENTIFIED` | No fue posible identificar el recurso asociado (FR-007) |
 | 404 | `DAMAGE_REPORT_NOT_FOUND` | El reporte consultado no existe |
-| 409 | `DUPLICATE_DAMAGE_REPORT` | Ya existe un reporte para la utilización (FR-007) |
-| 409 | `USAGE_NOT_DETERMINABLE` | No se puede vincular con certeza a una utilización (recurso reasignado o sin historial) |
-| 409 | `RESOURCE_ALREADY_SYNCED` | Reintento sobre un reporte ya sincronizado |
+| 409 | `DUPLICATE_DAMAGE_REPORT` | Ya existe un reporte para la utilización (FR-006) |
+| 409 | `USAGE_NOT_DETERMINABLE` | No se puede vincular con certeza a una utilización (por ejemplo, recurso reasignado) |
 | 500 | `PERSISTENCE_ERROR` | Fallo al registrar; no queda registro incompleto |
 
 `ProblemDetail` de ejemplo:
@@ -507,7 +408,7 @@ Rol `ADMIN`. Sin cuerpo. `200 OK` con el reporte actualizado (`SYNCED` o, si M1 
 }
 ```
 
-### 7. Tablas
+### 8. Tablas
 
 #### `damage_report`
 
@@ -515,20 +416,13 @@ Rol `ADMIN`. Sin cuerpo. `200 OK` con el reporte actualizado (`SYNCED` o, si M1 
 |---|---|---|
 | `id` | varchar(36) PK | UUID |
 | `resource_id` | varchar(50) NOT NULL | |
-| `usage_id` | varchar(50) NOT NULL | **UNIQUE** (FR-007) |
-| `student_code` | varchar(20) NOT NULL | Titular de la utilización |
+| `usage_id` | varchar(50), nulo | **UNIQUE** cuando existe (FR-006) |
+| `student_code` | varchar(20), nulo | Titular, cuando se identifica utilización |
 | `source` | varchar(20) NOT NULL | `CHECK_OUT`, `INDEPENDENT` |
 | `description` | text NOT NULL | |
-| `target_status` | varchar(20) NOT NULL | `MAINTENANCE`, `OUT_OF_SERVICE` |
 | `reported_by` | varchar(100) NOT NULL | Del JWT |
 | `reported_at` | timestamp NOT NULL | |
-| `charge_id` | varchar(50), nulo | Id del cobro devuelto por UC4 |
-| `resource_sync_status` | varchar(20) NOT NULL | `PENDING`, `SYNCED`, `FAILED` |
-| `sync_attempts` | int NOT NULL DEFAULT 0 | |
-| `last_sync_error` | varchar(255), nulo | |
-| `last_sync_attempt_at` | timestamp, nulo | |
-| `synced_at` | timestamp, nulo | |
-| `needs_review` | boolean NOT NULL DEFAULT false | |
+| `publication_status` | varchar(20) NOT NULL | `PENDING`, `PUBLISHED`, `FAILED` (publicación al broker solamente) |
 | `created_at` | timestamp NOT NULL | |
 | `updated_at` | timestamp NOT NULL | |
 
@@ -536,7 +430,7 @@ Rol `ADMIN`. Sin cuerpo. `200 OK` con el reporte actualizado (`SYNCED` o, si M1 
 CREATE UNIQUE INDEX damage_report_usage ON damage_report (usage_id);
 CREATE INDEX damage_report_resource ON damage_report (resource_id, reported_at DESC);
 CREATE INDEX damage_report_student ON damage_report (student_code, reported_at DESC);
-CREATE INDEX damage_report_sync ON damage_report (resource_sync_status, last_sync_attempt_at);
+CREATE INDEX damage_report_publication ON damage_report (publication_status, reported_at);
 ```
 
 #### `damage_evidence`
@@ -556,27 +450,22 @@ CREATE INDEX damage_report_sync ON damage_report (resource_sync_status, last_syn
 CREATE INDEX damage_evidence_report ON damage_evidence (report_id);
 ```
 
-La clave única en `usage_id` es lo que hace cumplir FR-007 y SC-003 a nivel de base de datos.
+La clave única opcional en `usage_id` evita duplicados para reportes vinculados. El criterio para evitar duplicados cuando no hay utilización asociada debe definirse junto con el esquema canónico de M1.
 
-### 8. Tipos del frontend
+### 9. Tipos del frontend
 
 ```js
-export const ResourceSyncStatus = {
+export const DamagePublicationStatus = {
   PENDING: "PENDING",
-  SYNCED: "SYNCED",
+  PUBLISHED: "PUBLISHED",
   FAILED: "FAILED",
 };
 
-export const ResourceTargetStatus = {
-  MAINTENANCE: "MAINTENANCE",
-  OUT_OF_SERVICE: "OUT_OF_SERVICE",
-};
-
-export const reportDamage = async ({ resourceId, usageId, description, targetStatus }) => {
+export const reportDamage = async ({ resourceId, usageId, description }) => {
   const response = await fetch("/api/v1/admin/damage-reports", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ resourceId, usageId, description, targetStatus }),
+    body: JSON.stringify({ resourceId, usageId, description }),
   });
   if (!response.ok) throw await response.json();
   return response.json();
@@ -593,214 +482,177 @@ export const uploadDamageEvidence = async (reportId, file) => {
   return response.json();
 };
 
-export const getDamageReports = async ({ needsReview, resourceId, page = 1 } = {}) => {
+export const getDamageReports = async ({ publicationStatus, resourceId, page = 1 } = {}) => {
   const params = new URLSearchParams({ page });
-  if (needsReview !== undefined) params.set("needsReview", needsReview);
+  if (publicationStatus) params.set("publicationStatus", publicationStatus);
   if (resourceId) params.set("resourceId", resourceId);
   const response = await fetch(`/api/v1/admin/damage-reports?${params}`);
   if (!response.ok) throw await response.json();
   return response.json();
 };
-
-export const retryResourceSync = async (reportId) => {
-  const response = await fetch(`/api/v1/admin/damage-reports/${reportId}/retry-resource-sync`, {
-    method: "POST",
-  });
-  if (!response.ok) throw await response.json();
-  return response.json();
-};
 ```
 
-### 9. Fixtures compartidos
+### 10. Fixtures compartidos
 
 ```text
 backend/src/test/resources/contracts/
-├── api-damage-report-201-synced.json
-├── api-damage-report-201-sync-failed.json
+├── api-damage-report-201-created.json
+├── api-damage-report-201-created-pending.json
 ├── api-damage-reports-list-200.json
 ├── api-damage-evidence-201.json
 ├── api-damage-report-400-missing-description.json
 ├── api-damage-report-404-resource.json
 ├── api-damage-report-409-duplicate.json
 ├── api-damage-report-409-usage-not-determinable.json
-├── m1-resource-status-200.json
-└── m1-resource-status-500.json
+├── m1-damage-report-event-v1.json
+└── m1-damage-report-invalid-event.json
 ```
 
 ## Phase 1: Setup
 
-- [ ] T001 Añadir a `application.yml`: `sanctions.damage.default-resource-status=MAINTENANCE`, `sanctions.damage.sync.max-attempts=10`, `sanctions.damage.sync.retry-interval=PT1M`, `sanctions.damage.evidence.max-files=5`, `sanctions.damage.evidence.max-size-bytes=5242880`, `sanctions.damage.evidence.storage-path=/data/evidence`, `sanctions.integration.module1.base-url`, `sanctions.integration.module1.timeout=PT1.5S`
-- [ ] T002 [P] Extender `SanctionsProperties` con esos parámetros y validarlos al arrancar
-- [ ] T003 [P] Añadir un volumen `evidence` al `docker-compose.yml` y configurar `RestClientConfig` con los timeouts de M1
-- [ ] T004 [P] Habilitar `@Scheduled` en `SchedulingConfig` (si no existe ya de UC1)
+- [ ] T001 Configurar las propiedades Kafka compartidas y los límites de evidencia. El topic propuesto `unimag.m3.uso-novedades.v1` y la clave de recurso quedan pendientes de NC-01; los valores de broker se toman de la configuración común de M3.
+- [ ] T002 [P] Extender `SanctionsProperties` con topic y límites de evidencia; validar las propiedades al arrancar.
+- [ ] T003 [P] Añadir un volumen `evidence` al `docker-compose.yml` y configurar la ruta de almacenamiento local.
+- [ ] T004 Verificar que el publicador/outbox Kafka compartido está habilitado; UC8 no crea un scheduler de reintentos propio.
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
-**Purpose**: dónde guardar el reporte y la evidencia, y los puertos hacia UC6, UC4 y M1.
+**Purpose**: persistir el reporte y la evidencia, vincular utilización cuando aplique y guardar el evento M1 en outbox atómicamente.
 
-- [ ] T005 Escribir `V12__damage_report.sql` con la tabla `damage_report` y sus índices de Contratos §7 (incluida la clave única en `usage_id`)
-- [ ] T006 Escribir `V13__damage_evidence.sql` con la tabla `damage_evidence` y su índice
-- [ ] T007 [P] Crear el modelo de dominio: `DamageReport`, `DamageEvidence`, `DamageSource`, `ResourceTargetStatus`, `ResourceSyncStatus`, `UsageView` en `domain/model/`
-- [ ] T008 [P] Definir `ReportDamagePort` y `AttachDamageEvidencePort` en `domain/port/in/`
-- [ ] T009 [P] Definir `DamageReportRepository`, `DamageEvidenceRepository`, `UsageLookupPort`, `ResourceModuleClient`, `GenerateChargePort` y `EvidenceStoragePort` en `domain/port/out/`
-- [ ] T010 [P] Crear `DamageReportRegisteredEvent` en `domain/event/` y las excepciones de `domain/error/`
-- [ ] T011 [P] Implementar `DamageReportEntity`, `DamageEvidenceEntity`, sus repositorios Spring Data, adaptadores y mappers
-- [ ] T012 [P] Implementar el adaptador de `UsageLookupPort` sobre la tabla `usage` de UC6 (**verificar columnas con el plan de UC6**)
-- [ ] T013 [P] Implementar `ResourceModuleRestClient` (REST a M1, `Idempotency-Key`, timeout, mapeo de errores a `ResourceModuleException`) — **depende de NC-01**
-- [ ] T014 [P] Implementar `LocalEvidenceStorage` sobre el volumen
-- [ ] T015 Coordinar con UC4 la firma de `GenerateChargePort`; mientras UC4 no exista, usar un doble de prueba que devuelva un `chargeId` simulado
+- [ ] T005 Crear `V12__damage_report.sql` con reporte, estado de publicación y unicidad opcional por utilización; revisar el índice con los casos sin `usage_id`.
+- [ ] T006 Crear `V13__damage_evidence.sql` con la tabla y sus índices.
+- [ ] T007 [P] Crear modelos `DamageReport`, `DamageEvidence`, `DamageSource`, `DamagePublicationStatus` y `UsageView`; no crear un estado destino del recurso que pertenece a M1.
+- [ ] T008 [P] Definir `ReportDamagePort` y `AttachDamageEvidencePort` en `domain/port/in/`.
+- [ ] T009 [P] Definir `DamageReportRepository`, `DamageEvidenceRepository`, `UsageLookupPort`, `DamageReportPublisherPort` y `EvidenceStoragePort` en los puertos de salida.
+- [ ] T010 [P] Crear `DamageReportRegisteredEvent` y las excepciones de dominio.
+- [ ] T011 [P] Implementar entidades, repositorios Spring Data, adaptadores y mappers de reporte/evidencia.
+- [ ] T012 [P] Implementar `UsageLookupPort` sobre la utilización local de UC6; admitir reportes sin utilización cuando no se pueda vincular una.
+- [ ] T013 [P] Implementar el mapper y adaptador Kafka de `DamageReport` con los nombres confirmados por M1, documentados en [plan-integracion-kafka.md](./plan-integracion-kafka.md); no inferir ni corregir campos ambiguos antes de NC-01.
+- [ ] T014 [P] Implementar `LocalEvidenceStorage` sobre el volumen.
+- [ ] T015 Verificar/usar el outbox y el publicador compartidos de M3 para persistir y enviar el evento, incluidos sus reintentos de publicación.
 
-**Checkpoint**: existe dónde guardar el reporte, cómo ubicar la utilización, cómo hablar con M1 y cómo disparar el cobro
+**Checkpoint**: reporte, referencia opcional a utilización y evento outbox quedan persistidos en una única transacción; M3 no llama a M1 por REST.
 
 ## Phase 3: User Story 1 — Reporte de daño durante el check-out (Priority: P1)
 
-**Goal**: cuando el estudiante indica un daño al hacer check-out, el sistema registra el reporte vinculado a la utilización, dispara el cobro y cambia el estado del recurso en M1.
+**Goal**: cuando el estudiante indica un daño en el check-out, UC6 registra el reporte vinculado a esa utilización y deja el evento de M1 en el outbox.
 
-**Independent Test**: simular un check-out con `damage.hasDamage = true` y descripción; comprobar que (a) hay una fila en `damage_report` con `source = CHECK_OUT`, (b) `GenerateChargePort` se invocó una vez, (c) M1 recibió el cambio a `MAINTENANCE` y el reporte quedó `SYNCED`.
+**Independent Test**: simular un check-out con `damage.hasDamage = true` y descripción; comprobar que el reporte tiene `source = CHECK_OUT`, que el mensaje se guarda en outbox en la misma transacción y que se publica a Kafka bajo el topic y clave definidos por M1. No comprobar un acuse de procesamiento de M1 porque el contrato no lo define.
 
 ### Tests for User Story 1
 
-- [ ] T016 [P] [US1] Pruebas en `DamageReportServiceTest.java` (unit, con puertos falsos): `reportDuringCheckOut` registra con el estudiante de la utilización, llama a `GenerateChargePort` con `sourceEventId = reportId` y publica `DamageReportRegisteredEvent`
-- [ ] T017 [P] [US1] Prueba `DamageReportIT.java` con Testcontainers MySQL: reporte + cobro en la misma transacción; si `GenerateChargePort` lanza excepción → rollback completo y **ninguna** fila en `damage_report`
-- [ ] T018 [P] [US1] Prueba `DamageResourceSyncIT.java` con WireMock: M1 responde 200 → `SYNCED` y `synced_at`; el listener `AFTER_COMMIT` solo se ejecuta si T1 hizo commit (si UC6 revierte el check-out, M1 **no** es llamado)
-- [ ] T019 [P] [US1] Prueba de contrato `ResourceModuleClientContractTest.java`: cabecera `Idempotency-Key`, cuerpo y manejo de 200/204 según el contrato acordado con M1
+- [ ] T016 [P] [US1] Pruebas unitarias: `reportDuringCheckOut` conserva `usageId`, recurso y estudiante, y produce el evento interno de reporte.
+- [ ] T017 [P] [US1] Prueba MySQL: reporte y outbox son atómicos; si falla el registro del outbox, no queda reporte parcial.
+- [ ] T018 [P] [US1] Prueba de integración: si la transacción completa de check-out se revierte, tampoco quedan reporte/outbox; si el subflujo de daño se rechaza por una regla de negocio, se emite `DamageReportRegistrationRejected` y el check-out puede completarse sin reporte.
+- [ ] T019 [P] [US1] Prueba de contrato del payload/topic/key usando el esquema acordado con M1; el fixture no debe codificar las erratas del borrador recibido.
 
 ### Implementation for User Story 1
 
-- [ ] T020 [US1] Implementar `DamageReportRegistrar.register(...)` (`@Transactional`): validar, guardar con `PENDING`, llamar a `GenerateChargePort`, guardar `charge_id` y publicar `DamageReportRegisteredEvent` (T1)
-- [ ] T021 [US1] Implementar `ResourceStatusSynchronizer.sync(...)`: llamar a `ResourceModuleClient.changeStatus(...)` y marcar `SYNCED` (T2)
-- [ ] T022 [US1] Implementar `ResourceSyncListener` con `@TransactionalEventListener(phase = AFTER_COMMIT)` (síncrono, sin `@Async`)
-- [ ] T023 [US1] Implementar `DamageReportService.reportDuringCheckOut(...)`
-- [ ] T024 [US1] Coordinar con UC6: añadir el bloque `damage` al contrato del check-out y llamar a `reportDuringCheckOut` desde `CheckOutService`; incluir `damageReport` en la respuesta del check-out
+- [ ] T020 [US1] Implementar `DamageReportRegistrar.register(...)`: validar, guardar el reporte y guardar `DamageReport` en outbox dentro de T1.
+- [ ] T021 [US1] Conectar el mensaje outbox con el publicador Kafka compartido, manteniendo el mismo identificador de evento en reintentos.
+- [ ] T022 [US1] Implementar `DamageReportService.reportDuringCheckOut(...)`.
+- [ ] T023 [US1] Coordinar con UC6: añadir el bloque opcional `damage`, delegar a `reportDuringCheckOut` y exponer el identificador del reporte sin afirmar que M1 ya aplicó el cambio; emitir `DamageReportRegistrationRejected` ante rechazos de negocio conocidos.
 
-**Checkpoint**: el camino P1 funciona de punta a punta, con cobro y cambio de estado del recurso
+**Checkpoint**: el camino P1 guarda el reporte y publica el evento del contrato de M1; el resultado de M1 no se simula ni se espera sin contrato de acuse.
 
 ## Phase 4: User Story 2 — Reporte de daño fuera del flujo de check-out (Priority: P2)
 
-**Goal**: dirección universitaria reporta un daño sobre un recurso ya devuelto, y el sistema lo vincula a la última utilización identificable.
+**Goal**: dirección universitaria registra un daño detectado fuera del check-out; el reporte se vincula a una utilización cuando puede identificarse con certeza.
 
-**Independent Test**: sobre un recurso devuelto sin daño reportado, `POST /api/v1/admin/damage-reports` con `resourceId` y descripción; comprobar `source = INDEPENDENT`, vinculación a la última utilización cerrada, cobro disparado y estado actualizado en M1.
+**Independent Test**: `POST /api/v1/admin/damage-reports` con recurso y descripción; comprobar `source = INDEPENDENT`, la vinculación opcional de utilización y un evento outbox publicado a M1.
 
 ### Tests for User Story 2
 
-- [ ] T025 [P] [US2] Pruebas en `DamageReportRegistrarTest.java`: vinculación a la última utilización cerrada; `usageId` explícito que no pertenece al recurso → `RESOURCE_NOT_IDENTIFIED`/`USAGE_NOT_DETERMINABLE`; recurso **en uso por otra persona** sin `usageId` → `USAGE_NOT_DETERMINABLE`; recurso en uso **con** `usageId` explícito → acepta; recurso sin historial → `USAGE_NOT_DETERMINABLE`
-- [ ] T026 [P] [US2] Prueba `AdminDamageReportControllerTest.java` con `@WebMvcTest`, contra los fixtures: `POST` con rol `DIRECCION_PROGRAMA` → 201; con rol `ESTUDIANTE` → 403; sin sesión → 401
-- [ ] T027 [P] [US2] Prueba `DamageReportIT.java` (extensión): `targetStatus = OUT_OF_SERVICE` se envía a M1; por defecto se envía `MAINTENANCE`
+- [ ] T024 [P] [US2] Pruebas de vinculación: utilización explícita del recurso → acepta; utilización de otro recurso → rechaza; recurso en uso sin vínculo inequívoco → `USAGE_NOT_DETERMINABLE`; sin historial y sin `usageId` → registra sin atribuir estudiante.
+- [ ] T025 [P] [US2] Prueba `AdminDamageReportControllerTest.java`: dirección → 201; estudiante sin permiso → 403; sin sesión → 401.
+- [ ] T026 [P] [US2] Prueba de integración: reporte independiente crea exactamente un evento en outbox sin seleccionar el estado final del recurso.
 
 ### Implementation for User Story 2
 
-- [ ] T028 [US2] Completar `DamageReportRegistrar` con la regla de vinculación de la decisión 3 (usar `UsageLookupPort.findLastClosedByResource` / `findActiveByResource`)
-- [ ] T029 [US2] Implementar `DamageReportService.reportIndependent(...)`
-- [ ] T030 [US2] Implementar `AdminDamageReportController` con `POST /api/v1/admin/damage-reports` y los DTOs `DamageReportRequest`/`DamageReportResponse`; tomar el reportante del JWT
+- [ ] T027 [US2] Implementar la regla de vinculación opcional usando `UsageLookupPort`.
+- [ ] T028 [US2] Implementar `DamageReportService.reportIndependent(...)`.
+- [ ] T029 [US2] Implementar `AdminDamageReportController` y DTOs; tomar `reportedBy` del JWT.
 
-**Checkpoint**: dirección puede reportar daños detectados fuera del check-out
+**Checkpoint**: dirección puede informar daños sin convertir a M3 en autoridad del inventario.
 
-## Phase 5: User Story 3 — Rechazos y falla de M1 (Priority: P1)
+## Phase 5: User Story 3 — Validaciones y fallas de publicación (Priority: P1)
 
-**Goal**: el sistema rechaza los reportes inválidos con el motivo exacto, impide duplicados y, si M1 no confirma, conserva el reporte, marca la inconsistencia y lo reintenta.
-
-**Independent Test**: cubrir cada Edge Case de la spec — recurso no identificado, duplicado, sin descripción, recurso reasignado, error al registrar, error de M1 — y verificar código, `code` y estado final de los datos.
+**Goal**: rechazar reportes inválidos, impedir duplicados donde haya utilización asociada y conservar/reintentar eventos si Kafka no está disponible.
 
 ### Tests for User Story 3
 
-- [ ] T031 [P] [US3] Pruebas en `DamageReportRegistrarTest.java`: descripción vacía o solo espacios → `MISSING_DESCRIPTION`; recurso inexistente → `RESOURCE_NOT_IDENTIFIED`; duplicado → `DUPLICATE_DAMAGE_REPORT`; un rechazo **no** invoca a `GenerateChargePort` ni a M1
-- [ ] T032 [P] [US3] Prueba `DamageReportIT.java` (extensión): dos reportes concurrentes sobre la misma utilización → una fila, un solo `201`, el otro `409` (clave única); un rechazo no deja filas en `damage_report`
-- [ ] T033 [P] [US3] Pruebas en `ResourceStatusSynchronizerTest.java` y `DamageResourceSyncIT.java` (WireMock): M1 responde 500 / expira → `FAILED`, `needs_review = true`, `sync_attempts` incrementado, **reporte y cobro intactos**; M1 responde 404 → `needs_review` sin reintentos automáticos
-- [ ] T034 [P] [US3] Prueba del `ResourceSyncRetryScheduler`: reintenta solo los `FAILED` con intentos < máximo; tras el éxito pasa a `SYNCED` y `needs_review = false`; al agotar intentos queda en `needs_review = true`; con reloj inyectado
-- [ ] T035 [P] [US3] Pruebas de `retry-resource-sync` en `AdminDamageReportControllerTest.java`: `ADMIN` → 200; ya sincronizado → 409; rol insuficiente → 403
+- [ ] T030 [P] [US3] Validación de descripción vacía, recurso no identificado y utilización no determinable; una solicitud rechazada no crea reporte ni outbox.
+- [ ] T031 [P] [US3] Prueba concurrente de unicidad por utilización; dos reportes no generan eventos duplicados para el mismo uso.
+- [ ] T032 [P] [US3] Prueba outbox: broker no disponible deja el evento pendiente y el publicador compartido lo reintenta; distinguir estado de publicación de procesamiento de M1.
+- [ ] T033 [P] [US3] Prueba de integración de idempotencia del consumidor M1 por identificador de evento, coordinada con M1 si existe entorno/contrato de prueba.
 
 ### Implementation for User Story 3
 
-- [ ] T036 [US3] Completar `DamageReportRegistrar` con las validaciones: recurso identificable → descripción no vacía → utilización determinable → no duplicado
-- [ ] T037 [US3] Traducir la violación de la clave única `usage_id` a `DuplicateDamageReportException` en `DamageReportRepositoryAdapter`
-- [ ] T038 [US3] Completar `ResourceStatusSynchronizer` con la rama de fallo (`FAILED`, `last_sync_error`, `needs_review`) sin lanzar excepción hacia el controlador
-- [ ] T039 [US3] Implementar `ResourceSyncRetryScheduler` y `DamageReportService.retryResourceSync(...)` con el endpoint `POST .../retry-resource-sync`
-- [ ] T040 [US3] Mapear cada excepción de dominio a su `ProblemDetail` (`@RestControllerAdvice`) según Contratos §6
+- [ ] T034 [US3] Mapear `ResourceNotIdentifiedException`, `MissingDescriptionException`, `DuplicateDamageReportException` y `UsageNotDeterminableException` a `ProblemDetail`.
+- [ ] T035 [US3] Convertir colisiones de unicidad de `usage_id` a `DuplicateDamageReportException`.
+- [ ] T036 [US3] Exponer `publicationStatus` solo como estado de entrega a Kafka; no modelar `SYNCED`, `needsReview` ni “estado M1 actualizado”.
 
-**Checkpoint**: ningún reporte inválido se registra y una falla de M1 no pierde datos ni se queda sin atender
+**Checkpoint**: los errores locales son explícitos y los fallos de publicación no pierden el reporte ni implican una falsa confirmación de M1.
 
 ## Phase 6: User Story 4 — Evidencia, consulta y pantallas (Priority: P3)
 
-**Goal**: adjuntar fotografías, consultar reportes y operar todo desde la interfaz.
-
-### Tests for User Story 4
-
-- [ ] T041 [P] [US4] Prueba `DamageEvidenceIT.java`: subir una imagen válida la guarda y registra sus metadatos; tipo no permitido, > 5 MB o el sexto archivo → `INVALID_EVIDENCE`; no se puede adjuntar a un reporte inexistente (`404`)
-- [ ] T042 [P] [US4] Prueba `DamageReportControllerTest.java`: `GET /{id}` por el titular → 200, por otro estudiante → 403; descarga de evidencia con autorización correcta
-- [ ] T043 [P] [US4] Pruebas de `DamageReportForm` y `DamageReviewPanel` (React Testing Library): la descripción vacía muestra el error del backend; "Reintentar" solo aparece con `FAILED`; la evidencia es opcional
-
-### Implementation for User Story 4
-
-- [ ] T044 [US4] Implementar `DamageEvidenceService` y los endpoints de subida y descarga en `DamageReportController`
-- [ ] T045 [US4] Implementar `GET /api/v1/damage-reports/{id}` y `GET /api/v1/admin/damage-reports` con paginación y reglas de visibilidad por rol
-- [ ] T046 [P] [US4] Frontend: `damageReportApi.js`
-- [ ] T047 [P] [US4] Frontend: `DamageReportForm.jsx` y `DamageEvidenceUploader.jsx` (reutilizables en `CheckOutPage` de UC6)
-- [ ] T048 [P] [US4] Frontend: `ResourceSyncBadge.jsx` y `DamageReviewPanel.jsx`
-- [ ] T049 [US4] Frontend: `DamageReportPage.jsx` que integra el formulario de reporte independiente, la lista y el panel de revisión
-
-**Checkpoint**: el flujo es utilizable de punta a punta desde la interfaz
+- [ ] T037 [P] [US4] Prueba de evidencia: archivo válido se almacena con metadatos; tipo no permitido, tamaño >5 MB o más de 5 archivos → `INVALID_EVIDENCE`; reporte inexistente → 404.
+- [ ] T038 [P] [US4] Prueba de consulta y autorización del reporte/evidencia.
+- [ ] T039 [P] [US4] Pruebas React: formulario, evidencia opcional y estado de publicación sin lenguaje de “recurso sincronizado”.
+- [ ] T040 [US4] Implementar carga/descarga de evidencia y consultas paginadas.
+- [ ] T041 [P] [US4] Implementar `damageReportApi.js`, `DamageReportForm.jsx` y `DamageEvidenceUploader.jsx` reutilizable por UC6.
+- [ ] T042 [US4] Implementar `DamageReportPage.jsx` y mostrar el estado de publicación al broker, sin afirmar que M1 actualizó el inventario ni añadir un botón UC8 de reintento manual.
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T050 [P] Verificar SC-001 (100 % de los reportes registrados disparan Generar cobro)
-- [ ] T051 [P] Verificar SC-002 (100 % de los recursos con daño quedan distintos de "Disponible" justo después del reporte, **cuando M1 confirma**; medir cuánto dura la ventana con M1 caído — ver NC-06)
-- [ ] T052 [P] Verificar SC-003 (0 % de reportes duplicados por utilización, incluso con concurrencia)
-- [ ] T053 [P] Verificar SC-004 (registro < 2 s, incluida la llamada a M1)
-- [ ] T054 [P] Registrar en logs cada reporte (recurso, utilización, estudiante, reportante) y cada intento de sincronización con M1 y su resultado
-- [ ] T055 [P] Prueba ArchUnit: `domain` y `business` no importan JPA, `RestClient` ni clases de `infrastructure`
-- [ ] T056 [P] Documentar en el README cómo reportar un daño, cómo configurar el volumen de evidencia y cómo reintentar la sincronización con M1
-- [ ] T057 Llevar a `pendientes-clarificacion.md` los NEEDS CLARIFICATION abiertos en este plan (NC-01 a NC-06)
+- [ ] T043 [P] Verificar SC-001 mediante métricas de publicación/outbox: todos los reportes aceptados producen un mensaje destinado a M1.
+- [ ] T044 [P] Verificar SC-002 con métricas/confirmación del lado de M1: M3 no recibe acuse de procesamiento según el contrato disponible.
+- [ ] T045 [P] Verificar unicidad de reportes asociados a una utilización (SC-003).
+- [ ] T046 [P] Verificar SC-004: registro local y outbox <2 s; no incluir espera de procesamiento M1.
+- [ ] T047 [P] Registrar creación del reporte, `eventId`, estado del outbox y fallos de publicación; no registrar costos ni afirmar actualización de M1.
+- [ ] T048 [P] Prueba ArchUnit: `domain` y `business` no importan JPA, Kafka ni clases de `infrastructure`.
+- [ ] T049 Documentar en README cómo reportar el daño y adjuntar evidencia.
+- [ ] T050 Registrar pendientes del esquema y del acuse de M1 para seguimiento intermodular.
 
 ## Dependencies & Execution Order
 
 ### Phase Dependencies
 
-- **Setup (Phase 1)**: depende de `plan.md`
-- **Foundational (Phase 2)**: depende de Setup — BLOCKS las user stories
-- **User Story 1 (Phase 3)**: depende de Foundational y de UC6 (T024) y UC4 (T015, al menos con doble de prueba)
-- **User Story 2 (Phase 4)**: depende de US1 (comparte `DamageReportRegistrar`)
-- **User Story 3 (Phase 5)**: depende de US1 (completa registrar y sincronizar); los tests de T031 pueden escribirse en paralelo con US2
-- **User Story 4 (Phase 6)**: depende de US1; la evidencia (T044) es independiente de US2 y US3
-- **Polish (Phase 7)**: depende de todas las US
+- **Setup (Phase 1)**: depende de `plan.md` y de la configuración Kafka común.
+- **Foundational (Phase 2)**: requiere el esquema canónico del evento DamageReport de M1 para fijar el mapper; bloquea las historias que publican el evento.
+- **User Story 1 (Phase 3)**: depende de UC6 para invocar el puerto durante el check-out.
+- **User Story 2 (Phase 4)**: comparte registro, validaciones y publicación con US1.
+- **User Story 3 (Phase 5)**: completa las reglas locales y el manejo outbox compartido.
+- **User Story 4 (Phase 6)**: depende del modelo y repositorios, no de la confirmación de M1.
+- **Polish (Phase 7)**: depende de las historias anteriores y de observabilidad de M1 para medir SC-002.
 
 ### Dependencias con otros casos de uso del M3
 
-- **Realizar check-out (UC6)**: invoca `reportDuringCheckOut` y aporta `usage` y `UsageLookupPort`. Hay que acordar el bloque `damage` del contrato del check-out (T024) y qué pasa con el check-out si el reporte es inválido (NC-02).
-- **Generar cobro (UC4)**: UC8 lo dispara obligatoriamente dentro de T1. Hay que acordar `GenerateChargePort` y su idempotencia por `sourceEventId` (T015).
-- **Bloquear usuario (UC3)**: su plan espera que UC8 llame a `BlockForDamagePort.block` en daño grave; **no se implementa** hasta resolver NC-05.
+- **Realizar check-out (UC6)**: invoca `reportDuringCheckOut` y aporta `usageId`; el contrato `DamageReportRegistrationRejected` ya está definido, pero el consumidor de UC6 queda para una iteración posterior (NC-02).
+- **Calcular penalización**: permanece interno a M3 y no forma parte de UC8.
+- **Bloquear usuario**: UC8 no bloquea hasta que se defina gravedad y regla de negocio (NC-05).
 
 ### Dependencias con otros módulos
 
-- **Módulo 1**: REST síncrono para cambiar el estado del recurso (NC-01 sobre el contrato exacto).
+- **Módulo 1**: consume `DamageReport` desde el topic y con la clave documentados por su contrato; ver [plan-integracion-kafka.md](./plan-integracion-kafka.md). M1 decide y actualiza el recurso. Es necesario confirmar los nombres y el esquema final.
 - **Módulo 2**: sin integración directa en este UC.
-
-### Parallel Opportunities
-
-- En Foundational: T007 a T014
-- En US1: T016 a T019 (tests)
-- En US2: T025, T026, T027 (tests)
-- En US3: T031 a T035 (tests)
-- En US4: T041, T042, T043 (tests) y T046 a T048 (frontend)
-- En Polish: T050 a T056
 
 ## NEEDS CLARIFICATION abiertos
 
-| Id | Pendiente | Supuesto con el que avanza el plan |
+| Id | Pendiente | Estado/supuesto de trabajo |
 |---|---|---|
-| NC-01 | **Contrato REST exacto de M1** para cambiar el estado de un recurso (ruta, método, valores de estado, idempotencia, token de servicio). No figura en los documentos disponibles | `PUT /api/v1/resources/{id}/status` con `Idempotency-Key` (Contratos §4). **Bloquea T013** hasta contrastar con el plan de M1 |
-| NC-02 | **Qué hace el check-out si el reporte de daño es inválido** (por ejemplo, falta la descripción) | El check-out completo se rechaza para que el estudiante corrija; no se cierra a medias |
-| NC-03 | **Qué pasa con un daño detectado en un recurso sin ninguna utilización** (nadie a quien cobrar) | Se rechaza con `USAGE_NOT_DETERMINABLE` |
-| NC-04 | **Dónde y cómo se guardan las fotografías** (volumen local, almacenamiento de objetos), formatos y límites | Volumen de disco detrás de `EvidenceStoragePort`; máx. 5 archivos, 5 MB, JPEG/PNG |
-| NC-05 | **Si un daño debe bloquear al estudiante** y cómo se define "daño grave" (el plan de UC3 lo asume; la spec de UC8 no lo menciona) | UC8 no bloquea; se añade `severity` y la llamada a `BlockForDamagePort` cuando se defina |
-| NC-06 | **Qué hacer mientras M1 no confirma**: el recurso podría reasignarse antes de que M1 refleje el daño, lo que contradice SC-002 | Reintento automático cada minuto + `needs_review`; SC-002 se cumple "cuando M1 confirma". Si no es aceptable, hay que acordar con M1 un bloqueo preventivo |
+| NC-01 | Contrato canónico M1: topic marcado `@@@`, identificador `eventoId`/`eventId`, errata `recourseCategory`, key, tipos y campos requeridos de `DamageReport` | Ver [plan-integracion-kafka.md](./plan-integracion-kafka.md); el borrador contiene marcadores pendientes, erratas y JSON inválido. |
+| NC-02 | Consumo por UC6 del rechazo del reporte de daño (por ejemplo, falta la descripción) | El contrato `DamageReportRegistrationRejected` está definido en [plan-integracion-kafka.md](./plan-integracion-kafka.md), pero UC6 aún no lo maneja; el check-out no se bloquea. |
+| NC-03 | Reporte de daño sobre recurso sin utilización asociable | El reporte puede identificar el recurso sin `usageId` ni estudiante. La persistencia debe permitir ambas referencias nulas para este caso. El borrador M1 no aclara si `id_reservation_m2` y `student` son opcionales, ni define una clave de deduplicación para reportes sin utilización; confirmar esos puntos antes de cerrar el contrato y la restricción de unicidad. |
+| NC-04 | Almacenamiento, formatos y límites de evidencias | Propuesta: hasta 5 imágenes JPEG/PNG de 5 MB cada una (máximo potencial de 25 MB por reporte); MySQL guarda metadatos y la clave de almacenamiento, no los bytes. El almacenamiento persistente separado y `EvidenceStoragePort` son propuestas de UC8, no infraestructura definida en `plan.md`. Falta acordar capacidad total, retención, limpieza, copias de respaldo y recuperación; validar también el máximo acumulado por reporte. |
+| NC-05 | Si un daño debe bloquear al estudiante y cómo se define “daño grave” | No se implementa bloqueo hasta acordar regla y contrato con UC3. |
+| NC-06 | Confirmación de procesamiento de M1 hacia M3 | No está definida en el contrato Kafka recibido; `PUBLISHED` solo confirma entrega al broker. No añadir ack/evento de retorno por suposición. |
 
 ## Notes
 
-- La numeración T0XX es propia de este plan
-- [P] tasks = different files, no dependencies
-- [US1] a [US4] = trazabilidad a la user story
-- La sección Contratos es la única fuente del JSON de UC8
-- Decisiones adoptadas de M2: convenciones (camelCase, MAYUSCULA_CON_GUION_BAJO, nunca null, ISO-8601 con -05:00, RFC 9457), nombres de tablas en snake_case
-- Decisiones propias de M3: el cobro se dispara dentro de la transacción de registro y M1 después del commit; el fallo de M1 no revierte el reporte ni el cobro; `usage_id` obligatorio y único; vinculación conservadora ante reasignación; evidencia subida aparte; reintento automático y manual; UC8 no publica a Kafka ni bloquea al estudiante
-- Lo que M3 consume de M1: se adopta tal cual cuando M1 publique su contrato (NC-01); no se redefine
-- Lo que M3 produce para M1/M2: UC8 no produce eventos; solo la llamada REST a M1
+- La numeración T0XX es propia de este plan.
+- [P] tasks = different files, no dependencies.
+- [US1] a [US4] = trazabilidad a historias de usuario.
+- La sección Contratos define el API de M3; el payload intermodular se centraliza en [plan-integracion-kafka.md](./plan-integracion-kafka.md) y queda sujeto a NC-01.
+- M1 es autoridad de inventario y aplica su transición a partir del evento.
+- UC8 publica eventos a M1 mediante outbox/Kafka; `publicationStatus` describe únicamente la entrega al broker, no el procesamiento de M1.
